@@ -26,6 +26,7 @@ class SerialCommController:
         except ValueError:
             self.baudrate = 115200
 
+        self.esp32_ip = os.getenv("ESP32_IP", "").strip()
         self._serial = None
         self._lock = threading.Lock()
         self.conectado = False
@@ -107,7 +108,20 @@ class SerialCommController:
         return self.conectado and self._serial is not None and self._serial.is_open
 
     def enviar_comando(self, comando: str, aguardar_ack: bool = True, timeout: float = 3.0) -> str:
-        """Envia uma string de comando para o Arduino via Serial."""
+        """Envia uma string de comando para o Arduino via Wi-Fi (ESP32-S3) ou Serial USB."""
+        # 1. Tenta envio sem fio via Satélite ESP32-S3 se IP estiver configurado no .env
+        if self.esp32_ip:
+            try:
+                import requests
+                url = f"http://{self.esp32_ip}/api/arm"
+                res = requests.post(url, json={"cmd": comando.strip()}, timeout=timeout)
+                if res.status_code == 200:
+                    data = res.json()
+                    return data.get("arduino_ack", "OK_WIFI")
+            except Exception:
+                pass
+
+        # 2. Fallback para conexão Serial USB direta com o Arduino
         if not self.is_conectado():
             if not self.conectar():
                 return ""
@@ -181,7 +195,17 @@ class SerialCommController:
         sim.desenhar_rosto_oled(expressao)
 
     def atualizar_tela(self, titulo: str, subtitulo: str, icone: str = "🤖"):
-        """Atualiza o painel informativo no terminal."""
+        """Atualiza o painel informativo no terminal e na tela TFT 4.0\" do ESP32-S3."""
+        if self.esp32_ip:
+            def _sync_esp32():
+                try:
+                    import requests
+                    url = f"http://{self.esp32_ip}/api/display"
+                    requests.post(url, json={"title": titulo, "status": subtitulo, "icon": icone}, timeout=1.5)
+                except Exception:
+                    pass
+            threading.Thread(target=_sync_esp32, daemon=True).start()
+
         sim = self._get_simulator()
         return sim.atualizar_tela(titulo=titulo, subtitulo=subtitulo, icone=icone)
 
