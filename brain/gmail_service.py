@@ -7,74 +7,34 @@ import os
 import sys
 import base64
 from email.mime.text import MIMEText
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from google_auth_manager import google_auth_manager
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Escopos combinados: Calendar + Gmail (Leitura e Envio)
-SCOPES = [
-    'https://www.googleapis.com/auth/calendar',
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/tasks',
-    'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/youtube.readonly'
-]
-
 class GmailService:
     def __init__(self):
-        self.creds = None
-        self.service = None
-        self.base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.token_path = os.path.join(self.base_dir, "token.json")
-        self.credentials_path = os.path.join(self.base_dir, "credentials.json")
-        self._autenticar()
+        pass
+
+    @property
+    def service(self):
+        """Retorna o serviço do Gmail carregado sob demanda (lazy loading)."""
+        return google_auth_manager.get_service('gmail', 'v1')
 
     def _autenticar(self):
-        """Autentica o usuário para o Gmail aproveitando as credenciais do Google."""
-        if os.path.exists(self.token_path):
-            try:
-                self.creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
-            except Exception:
-                self.creds = None
-
-        if not self.creds or not self.creds.valid:
-            if self.creds and self.creds.expired and self.creds.refresh_token:
-                try:
-                    self.creds.refresh(Request())
-                except Exception:
-                    self.creds = None
-
-            if not self.creds:
-                if not os.path.exists(self.credentials_path):
-                    print(f"⚠️ [GMAIL AVISO] Arquivo '{self.credentials_path}' não encontrado.")
-                    return
-                print("\n🔐 [GMAIL] Abrindo navegador para autorizar permissões de e-mail...")
-                flow = InstalledAppFlow.from_client_secrets_file(self.credentials_path, SCOPES)
-                self.creds = flow.run_local_server(port=0)
-
-            with open(self.token_path, "w", encoding="utf-8") as token_file:
-                token_file.write(self.creds.to_json())
-            print("✅ [GMAIL] Conexão com Gmail autorizada com sucesso!")
-
-        self.service = build('gmail', 'v1', credentials=self.creds)
+        return self.service is not None
 
     def ler_ultimos_emails(self, quantidade: int = 3, apenas_nao_lidos: bool = True) -> str:
         """
         Consulta os últimos e-mails recebidos na caixa de entrada.
         """
-        if not self.service:
-            self._autenticar()
-            if not self.service:
-                return "Serviço do Gmail indisponível no momento."
+        service = self.service
+        if not service:
+            return "Serviço do Gmail indisponível no momento. Verifique o credentials.json."
 
         try:
             query = "is:unread in:inbox" if apenas_nao_lidos else "in:inbox"
-            results = self.service.users().messages().list(userId='me', q=query, maxResults=quantidade).execute()
+            results = service.users().messages().list(userId='me', q=query, maxResults=quantidade).execute()
             messages = results.get('messages', [])
 
             if not messages:
@@ -83,7 +43,7 @@ class GmailService:
 
             resumo = f"Encontrei os seguintes e-mails recentes para o senhor:\n"
             for i, msg_ref in enumerate(messages, 1):
-                msg = self.service.users().messages().get(
+                msg = service.users().messages().get(
                     userId='me', id=msg_ref['id'], format='metadata',
                     metadataHeaders=['From', 'Subject', 'Date']
                 ).execute()
@@ -105,10 +65,9 @@ class GmailService:
         """
         Envia um novo e-mail a partir da sua conta Google.
         """
-        if not self.service:
-            self._autenticar()
-            if not self.service:
-                return "Serviço do Gmail indisponível."
+        service = self.service
+        if not service:
+            return "Serviço do Gmail indisponível. Verifique o credentials.json."
 
         try:
             mensagem = MIMEText(corpo)
@@ -116,7 +75,7 @@ class GmailService:
             mensagem['subject'] = assunto
 
             raw = base64.urlsafe_b64encode(mensagem.as_bytes()).decode()
-            self.service.users().messages().send(userId='me', body={'raw': raw}).execute()
+            service.users().messages().send(userId='me', body={'raw': raw}).execute()
             
             print(f"📧 [GMAIL ENVIADO] Para: {destinatario} | Assunto: {assunto}")
             return f"E-mail enviado com sucesso para {destinatario} com o assunto '{assunto}', senhor."

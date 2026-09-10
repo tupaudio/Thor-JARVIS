@@ -8,56 +8,32 @@ Módulo de Serviços Adicionais do Google para o JARVIS:
 import os
 import sys
 import webbrowser
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from google_auth_manager import google_auth_manager
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Escopos unificados completos para todos os serviços Google do JARVIS
-SCOPES = [
-    'https://www.googleapis.com/auth/calendar',
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/tasks',
-    'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/youtube.readonly'
-]
-
 class GoogleExtendedServices:
     def __init__(self):
-        self.creds = None
-        self.tasks_service = None
-        self.sheets_service = None
-        self.youtube_service = None
-        self.base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.token_path = os.path.join(self.base_dir, "token.json")
-        self.credentials_path = os.path.join(self.base_dir, "credentials.json")
-        self._conectar()
+        pass
+
+    @property
+    def tasks_service(self):
+        """Retorna o serviço do Google Tasks sob demanda (lazy loading)."""
+        return google_auth_manager.get_service('tasks', 'v1')
+
+    @property
+    def sheets_service(self):
+        """Retorna o serviço do Google Sheets sob demanda (lazy loading)."""
+        return google_auth_manager.get_service('sheets', 'v4')
+
+    @property
+    def youtube_service(self):
+        """Retorna o serviço do YouTube API sob demanda (lazy loading)."""
+        return google_auth_manager.get_service('youtube', 'v3')
 
     def _conectar(self):
-        """Inicializa as credenciais compartilhadas."""
-        if os.path.exists(self.token_path):
-            try:
-                self.creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
-            except Exception:
-                self.creds = None
-
-        if self.creds and self.creds.valid:
-            try:
-                self.tasks_service = build('tasks', 'v1', credentials=self.creds)
-            except Exception:
-                pass
-            try:
-                self.sheets_service = build('sheets', 'v4', credentials=self.creds)
-            except Exception:
-                pass
-            try:
-                self.youtube_service = build('youtube', 'v3', credentials=self.creds)
-            except Exception:
-                pass
+        return True
 
     # =========================================================================
     # GOOGLE TASKS (TAREFAS)
@@ -65,10 +41,11 @@ class GoogleExtendedServices:
     def adicionar_tarefa(self, titulo: str, notas: str = "") -> str:
         """Adiciona uma nova tarefa na lista principal do Google Tasks."""
         try:
-            if not self.tasks_service:
-                self._conectar()
+            tasks = self.tasks_service
+            if not tasks:
+                return "Serviço do Google Tasks indisponível no momento. Verifique o credentials.json."
             task = {'title': titulo, 'notes': notas}
-            res = self.tasks_service.tasks().insert(tasklist='@default', body=task).execute()
+            res = tasks.tasks().insert(tasklist='@default', body=task).execute()
             print(f"✅ [GOOGLE TASKS] Tarefa adicionada: '{titulo}'")
             return f"Tarefa '{titulo}' adicionada à sua lista do Google Tasks com sucesso, senhor."
         except Exception as e:
@@ -77,9 +54,10 @@ class GoogleExtendedServices:
     def listar_tarefas(self, max_tarefas: int = 5) -> str:
         """Lista as tarefas pendentes do Google Tasks."""
         try:
-            if not self.tasks_service:
-                self._conectar()
-            tasks_res = self.tasks_service.tasks().list(tasklist='@default', maxResults=max_tarefas, showCompleted=False).execute()
+            tasks = self.tasks_service
+            if not tasks:
+                return "Serviço do Google Tasks indisponível no momento. Verifique o credentials.json."
+            tasks_res = tasks.tasks().list(tasklist='@default', maxResults=max_tarefas, showCompleted=False).execute()
             items = tasks_res.get('items', [])
             if not items:
                 return "O senhor não possui tarefas pendentes no Google Tasks no momento."
@@ -97,8 +75,9 @@ class GoogleExtendedServices:
         """Busca o vídeo mais relevante no YouTube e abre no navegador."""
         try:
             print(f"🎵 [YOUTUBE] Pesquisando e reproduzindo: '{termo}'...")
-            if self.youtube_service:
-                search_response = self.youtube_service.search().list(
+            yt = self.youtube_service
+            if yt:
+                search_response = yt.search().list(
                     q=termo, part='id,snippet', maxResults=1, type='video'
                 ).execute()
                 items = search_response.get('items', [])
@@ -128,11 +107,14 @@ class GoogleExtendedServices:
         if not sheet_id:
             return f"Gasto de R$ {valor:.2f} com '{item}' registrado (Para salvar diretamente na nuvem, defina GOOGLE_SHEETS_ID no arquivo .env, senhor)."
         try:
+            sheets = self.sheets_service
+            if not sheets:
+                return f"Gasto anotado de R$ {valor:.2f} com '{item}', mas o serviço de Planilhas Google está indisponível. Verifique o credentials.json."
             from datetime import datetime
             agora = datetime.now().strftime("%d/%m/%Y")
             valores = [[agora, item, categoria, valor]]
             body = {'values': valores}
-            self.sheets_service.spreadsheets().values().append(
+            sheets.spreadsheets().values().append(
                 spreadsheetId=sheet_id, range='A1',
                 valueInputOption='USER_ENTERED', body=body
             ).execute()

@@ -89,24 +89,20 @@ class SentinelService:
 
     def _loop_vigilancia(self, duracao_minutos: int):
         import cv2
+        from camera_manager import camera_manager
+
         tempo_inicio = time.time()
         tempo_maximo = duracao_minutos * 60
 
         print(f"\n🛡️ [SENTINELA] Inicializando sensor óptico da câmera...")
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
+        if not camera_manager.iniciar_stream():
             print("⚠️ [SENTINELA] Erro ao abrir a webcam para vigília.")
             self.ativo = False
             return
 
-        # Leitura inicial para adaptação de luminosidade
-        for _ in range(5):
-            cap.read()
-            time.sleep(0.1)
-
-        ret, frame_base = cap.read()
+        ret, frame_base = camera_manager.obter_frame()
         if not ret or frame_base is None:
-            cap.release()
+            camera_manager.parar_stream()
             self.ativo = False
             return
 
@@ -122,7 +118,7 @@ class SentinelService:
                     print("🛡️ [SENTINELA] Tempo limite de vigília atingido. Encerrando.")
                     break
 
-                ret, frame_atual = cap.read()
+                ret, frame_atual = camera_manager.obter_frame()
                 if not ret or frame_atual is None:
                     time.sleep(1)
                     continue
@@ -180,7 +176,7 @@ class SentinelService:
                 time.sleep(0.6)
 
         finally:
-            cap.release()
+            camera_manager.parar_stream()
             self.ativo = False
             print("🛡️ [SENTINELA] Câmera liberada e vigilância encerrada.")
 

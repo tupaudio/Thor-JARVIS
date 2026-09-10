@@ -97,6 +97,7 @@ class HardwareSimulator:
         print(f"│  TÍTULO: {titulo[:35]:<36}│")
         print(f"│  STATUS: {subtitulo[:35]:<36}│")
         print("└" + "─"*46 + "┘\n")
-        return "Tela atualizada."
-
-hardware = HardwareSimulator()
+try:
+    from serial_comm import hardware
+except Exception:
+    hardware = HardwareSimulator()

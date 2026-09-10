@@ -8,72 +8,31 @@ import sys
 from datetime import datetime, timedelta
 import dateutil.parser
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from google_auth_manager import google_auth_manager
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
 
-SCOPES = [
-    'https://www.googleapis.com/auth/calendar',
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/tasks',
-    'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/youtube.readonly'
-]
-
 class GoogleCalendarService:
     def __init__(self):
-        self.creds = None
-        self.service = None
-        self.base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.token_path = os.path.join(self.base_dir, "token.json")
-        self.credentials_path = os.path.join(self.base_dir, "credentials.json")
-        self._autenticar()
+        pass
+
+    @property
+    def service(self):
+        """Retorna o serviço do Google Calendar carregado sob demanda (lazy loading)."""
+        return google_auth_manager.get_service('calendar', 'v3')
 
     def _autenticar(self):
-        """Autentica o usuário via OAuth 2.0 e inicializa o serviço do Calendar."""
-        if os.path.exists(self.token_path):
-            try:
-                self.creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
-            except Exception:
-                self.creds = None
-
-        # Se não há credenciais válidas, realiza o login
-        if not self.creds or not self.creds.valid:
-            if self.creds and self.creds.expired and self.creds.refresh_token:
-                try:
-                    self.creds.refresh(Request())
-                except Exception:
-                    self.creds = None
-
-            if not self.creds:
-                if not os.path.exists(self.credentials_path):
-                    print(f"⚠️ [CALENDAR AVISO] Arquivo '{self.credentials_path}' não encontrado.")
-                    return
-                print("\n🔐 [GOOGLE CALENDAR] Abrindo navegador para autorização da sua conta Google...")
-                flow = InstalledAppFlow.from_client_secrets_file(self.credentials_path, SCOPES)
-                self.creds = flow.run_local_server(port=0)
-
-            # Salva o token para as próximas vezes
-            with open(self.token_path, "w", encoding="utf-8") as token_file:
-                token_file.write(self.creds.to_json())
-            print("✅ [GOOGLE CALENDAR] Conexão autorizada e token salvo com sucesso!")
-
-        self.service = build('calendar', 'v3', credentials=self.creds)
+        return self.service is not None
 
     def adicionar_evento(self, titulo: str, inicio_str: str, fim_str: str = None, descricao: str = "") -> str:
         """
         Adiciona um novo evento na Google Agenda.
         Formato de início esperado: 'YYYY-MM-DDTHH:MM:SS' ou data legível.
         """
-        if not self.service:
-            self._autenticar()
-            if not self.service:
-                return "Não foi possível conectar ao Google Calendar. Verifique o credentials.json."
+        service = self.service
+        if not service:
+            return "Não foi possível conectar ao Google Calendar. Verifique o credentials.json."
 
         try:
             # Interpreta a data de início
@@ -119,14 +78,13 @@ class GoogleCalendarService:
         """
         Retorna os próximos eventos agendados na conta do usuário.
         """
-        if not self.service:
-            self._autenticar()
-            if not self.service:
-                return "Serviço do Google Agenda indisponível."
+        service = self.service
+        if not service:
+            return "Serviço do Google Agenda indisponível. Verifique o credentials.json."
 
         try:
             agora = datetime.utcnow().isoformat() + 'Z'
-            events_result = self.service.events().list(
+            events_result = service.events().list(
                 calendarId='primary', timeMin=agora,
                 maxResults=max_eventos, singleEvents=True,
                 orderBy='startTime'
@@ -154,14 +112,13 @@ class GoogleCalendarService:
         """
         Busca e remove um evento pelo título ou palavra-chave.
         """
-        if not self.service:
-            self._autenticar()
-            if not self.service:
-                return "Serviço do Google Agenda indisponível."
+        service = self.service
+        if not service:
+            return "Serviço do Google Agenda indisponível. Verifique o credentials.json."
 
         try:
             agora = datetime.utcnow().isoformat() + 'Z'
-            events_result = self.service.events().list(
+            events_result = service.events().list(
                 calendarId='primary', timeMin=agora,
                 maxResults=10, singleEvents=True,
                 orderBy='startTime'
@@ -171,7 +128,7 @@ class GoogleCalendarService:
             for ev in events:
                 summary = ev.get('summary', '').lower()
                 if termo_busca.lower() in summary:
-                    self.service.events().delete(calendarId='primary', eventId=ev['id']).execute()
+                    service.events().delete(calendarId='primary', eventId=ev['id']).execute()
                     return f"Compromisso '{ev.get('summary')}' foi removido com sucesso da sua agenda."
 
             return f"Não encontrei nenhum evento futuro com o termo '{termo_busca}' para excluir."

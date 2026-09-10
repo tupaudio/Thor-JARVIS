@@ -210,24 +210,13 @@ class WindowsService:
             return ""
 
     def tirar_foto_webcam(self) -> str:
-        """Captura uma foto em tempo real pela câmera frontal (webcam)."""
+        """Captura uma foto em tempo real pela câmera frontal (webcam) via CameraManager."""
         try:
-            import cv2
-            cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
-                return ""
-            
-            # Descarta primeiros frames para ajuste automático de exposição/luz
-            for _ in range(5):
-                cap.read()
-            
-            ret, frame = cap.read()
-            cap.release()
-            
-            if ret and frame is not None:
-                cv2.imwrite(self.webcam_path, frame)
-                print(f"📸 [WEBCAM] Foto capturada com sucesso em '{self.webcam_path}'")
-                return self.webcam_path
+            from camera_manager import camera_manager
+            caminho = camera_manager.capturar_foto(self.webcam_path)
+            if caminho and os.path.exists(caminho):
+                print(f"📸 [WEBCAM] Foto capturada com sucesso em '{caminho}'")
+                return caminho
             return ""
         except Exception as e:
             print(f"⚠️ [WEBCAM] Erro ao capturar foto da webcam: {e}")
