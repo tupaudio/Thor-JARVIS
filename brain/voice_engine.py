@@ -30,8 +30,8 @@ class VoiceEngine:
         except Exception as e:
             print(f"⚠️ [VOZ] Falha ao inicializar pygame.mixer: {e}")
 
-    async def _generate_audio_bytes(self, text: str) -> bytes:
-        communicate = edge_tts.Communicate(text, self.voice_name)
+    async def _generate_audio_bytes(self, text: str, voice: str, rate: str = "+0%", pitch: str = "+0Hz") -> bytes:
+        communicate = edge_tts.Communicate(text, voice=voice, rate=rate, pitch=pitch)
         audio_stream = bytearray()
         async for chunk in communicate.stream():
             if chunk.get("type") == "audio":
@@ -40,12 +40,42 @@ class VoiceEngine:
 
     def speak(self, text: str):
         """
-        Sintetiza e reproduz a fala do JARVIS diretamente da memória RAM via pygame.mixer.
-        Elimina overhead de processos externos (PowerShell) e I/O de disco.
+        Sintetiza e reproduz a fala do assistente diretamente da memória RAM via pygame.mixer,
+        adaptando voz, velocidade e tom conforme a personalidade ativa.
         """
-        print(f"\n🎙️ [JARVIS]: \"{text}\"")
         try:
-            audio_bytes = asyncio.run(self._generate_audio_bytes(text))
+            from persona_manager import persona_manager
+            p = persona_manager.obter_persona()
+            nome_persona = p.get("nome", "J.A.R.V.I.S.")
+            voz = p.get("voz", self.voice_name)
+            rate = p.get("rate", "+0%")
+            pitch = p.get("pitch", "+0Hz")
+            is_r2d2 = (p.get("id") == "R2D2")
+        except Exception:
+            nome_persona = "J.A.R.V.I.S."
+            voz = self.voice_name
+            rate = "+0%"
+            pitch = "+0Hz"
+            is_r2d2 = False
+
+        print(f"\n🎙️ [{nome_persona}]: \"{text}\"")
+
+        try:
+            # Se a persona for o R2-D2, primeiro toca os bipes eletrônicos do droide!
+            if is_r2d2:
+                try:
+                    from persona_manager import persona_manager
+                    r2_wav = persona_manager.gerar_audio_r2d2()
+                    if r2_wav:
+                        bio_r2 = io.BytesIO(r2_wav)
+                        pygame.mixer.music.load(bio_r2)
+                        pygame.mixer.music.play()
+                        while pygame.mixer.music.get_busy():
+                            time.sleep(0.04)
+                except Exception:
+                    pass
+
+            audio_bytes = asyncio.run(self._generate_audio_bytes(text, voice=voz, rate=rate, pitch=pitch))
             if not audio_bytes:
                 return
 

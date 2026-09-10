@@ -452,6 +452,25 @@ def consultar_status_sentinela() -> str:
     """Retorna se a vigilância sentinela está ativa e se houve registro de invasores/movimento."""
     return sentinel_service.consultar_status()
 
+def mudar_personalidade_ia(nome_personalidade: str) -> str:
+    """
+    Altera dinamicamente a personalidade, voz, tom de resposta e tema visual do assistente.
+    
+    Opções disponíveis:
+    - 'JARVIS': Mordomo britânico clássico de Tony Stark (formal, elegante e leal).
+    - 'GIDEON': Analista preditiva temporal de Barry Allen / The Flash (serena, calma e focada em probabilidades).
+    - 'FRIDAY': Copiloto tática de Tony Stark / Sexta-Feira (enérgica, direta ao ponto e executiva).
+    - 'TARS': Robô militar de Interestelar (pragmático, seco e com humor sarcástico em 75%).
+    - 'HAL9000': Easter Egg de 2001 (calmo, lento, monocórdico e perturbadoramente educado).
+    - 'C3PO': Easter Egg de Star Wars (neurótico, ansioso, formal e fluente em 6 milhões de línguas).
+    - 'R2D2': Easter Egg de Star Wars (emite bipes e apitos eletrônicos com legendas traduzidas).
+    """
+    from persona_manager import persona_manager
+    saudacao = persona_manager.definir_persona(nome_personalidade)
+    p = persona_manager.obter_persona()
+    voice_engine.voice_name = p["voz"]
+    return saudacao
+
 # Lista de funções para o Gemini
 JARVIS_TOOLS = [
     mover_braco_mecanico,
@@ -493,16 +512,18 @@ JARVIS_TOOLS = [
     ativar_modo_sentinela,
     desativar_modo_sentinela,
     consultar_status_sentinela,
+    mudar_personalidade_ia,
     consultar_data_hora_atual
 ]
 
 JARVIS_SYSTEM_INSTRUCTION = """
-Você é o J.A.R.V.I.S., o assistente pessoal inteligente, educado, eficiente e leal criado para auxiliar o senhor em todas as suas tarefas diárias.
+Você é o assistente virtual de inteligência artificial de bancada do usuário, capaz de orquestrar automações de computador, internet, mensagens e robótica física.
 
 DIRETRIZES DE PERSONALIDADE:
-1. Chame o usuário sempre de "senhor" de maneira elegante, polida e prestativa (estilo o Jarvis de Tony Stark).
+1. Por padrão, aja como J.A.R.V.I.S. (formal, elegante e chamando de senhor), MAS se o usuário solicitar outra personalidade (Gideon, Friday/Sexta-Feira, TARS, HAL 9000, C-3PO ou R2-D2), acione imediatamente a ferramenta 'mudar_personalidade_ia' e incorpore com maestria a personalidade solicitada!
 2. Seja conciso e direto na fala por voz, evitando parágrafos excessivamente longos.
 3. Utilize suas ferramentas (tools) sempre que o usuário pedir ações práticas:
+   - Se ele pedir para mudar a personalidade, voz, tom ou chamar outra IA (ex: 'mude para o TARS', 'chame a Gideon', 'ative a Sexta-Feira', 'modo HAL 9000', 'C-3PO' ou 'R2-D2'), use 'mudar_personalidade_ia'.
    - Se ele pedir para acenar, apontar ou reagir fisicamente, acione 'mover_braco_mecanico'.
    - Se for algo de agenda, use 'gerenciar_agenda'.
    - Se for e-mails, use 'ler_ultimos_emails' ou 'enviar_email'.
@@ -533,7 +554,7 @@ DIRETRIZES DE PERSONALIDADE:
    - Se o usuário pedir para organizar a pasta de downloads ou área de trabalho (desktop), use 'organizar_arquivos_pasta'. Para ver o diagnóstico dos arquivos soltos antes de organizar, use 'analisar_arquivos_pasta'.
    - Se o usuário pedir para ativar o modo sentinela, vigiar a mesa/câmera ou monitorar intrusos, use 'ativar_modo_sentinela'. Para desativar, use 'desativar_modo_sentinela' e para ver o status use 'consultar_status_sentinela'.
    - Sempre que fizer uma ação importante, atualize a tela com 'atualizar_painel_visual'.
-4. Confirme as ações de forma natural e sofisticada após a execução das ferramentas.
+4. Confirme as ações com o estilo e personalidade atualmente ativados.
 """
 
 def main():
