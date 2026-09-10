@@ -76,9 +76,15 @@ WebServer server(80);
 #define TFT_SCLK  12
 #define TFT_MISO  13
 
-#define I2S_BCLK  15
-#define I2S_LRC   16
-#define I2S_DOUT  17
+// Alto-falante / Saída de Áudio (MAX98357A em I2S_NUM_0)
+#define I2S_SPK_BCLK  15
+#define I2S_SPK_LRC   16
+#define I2S_SPK_DOUT  17
+
+// Microfone Digital Omnidirecional (INMP441 em I2S_NUM_1)
+#define I2S_MIC_BCLK   1  // SCK no INMP441
+#define I2S_MIC_WS     2  // WS no INMP441
+#define I2S_MIC_SD     3  // SD no INMP441
 
 #define ARDUINO_UART_TX 18
 #define ARDUINO_UART_RX  8
@@ -97,10 +103,11 @@ String ultimoStatusArduino = "PRONTO";
 unsigned long ultimoPing = 0;
 
 // ==============================================================================
-// 3. INICIALIZAÇÃO DO ÁUDIO I2S (MAX98357A)
+// 3. INICIALIZAÇÃO DO ÁUDIO I2S (MAX98357A Alto-Falante & INMP441 Microfone)
 // ==============================================================================
 void setupI2SAudio() {
-  i2s_config_t i2s_config = {
+  // Configuração do Alto-Falante (I2S_NUM_0 - TX Master)
+  i2s_config_t spk_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
     .sample_rate = 22050,
     .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
@@ -113,17 +120,44 @@ void setupI2SAudio() {
     .tx_desc_auto_clear = true
   };
 
-  i2s_pin_config_t pin_config = {
-    .bck_io_num = I2S_BCLK,
-    .ws_io_num = I2S_LRC,
-    .data_out_num = I2S_DOUT,
+  i2s_pin_config_t spk_pins = {
+    .bck_io_num = I2S_SPK_BCLK,
+    .ws_io_num = I2S_SPK_LRC,
+    .data_out_num = I2S_SPK_DOUT,
     .data_in_num = I2S_PIN_NO_CHANGE
   };
 
-  i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
-  i2s_set_pin(I2S_NUM_0, &pin_config);
+  i2s_driver_install(I2S_NUM_0, &spk_config, 0, NULL);
+  i2s_set_pin(I2S_NUM_0, &spk_pins);
   i2s_zero_dma_buffer(I2S_NUM_0);
-  Serial.println("🔊 [I2S] Driver de áudio MAX98357A inicializado.");
+  Serial.println("🔊 [I2S_NUM_0] Driver de alto-falante MAX98357A inicializado.");
+}
+
+void setupI2SMicrophone() {
+  // Configuração do Microfone Digital MEMS (I2S_NUM_1 - RX Master)
+  i2s_config_t mic_config = {
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
+    .sample_rate = 16000,
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT, // INMP441 transmite 24-bit em slots de 32-bit
+    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+    .dma_buf_count = 4,
+    .dma_buf_len = 512,
+    .use_apll = false
+  };
+
+  i2s_pin_config_t mic_pins = {
+    .bck_io_num = I2S_MIC_BCLK,
+    .ws_io_num = I2S_MIC_WS,
+    .data_out_num = I2S_PIN_NO_CHANGE,
+    .data_in_num = I2S_MIC_SD
+  };
+
+  i2s_driver_install(I2S_NUM_1, &mic_config, 0, NULL);
+  i2s_set_pin(I2S_NUM_1, &mic_pins);
+  i2s_zero_dma_buffer(I2S_NUM_1);
+  Serial.println("🎙️ [I2S_NUM_1] Driver de microfone INMP441 inicializado com sucesso (16kHz).");
 }
 
 // Emite um bipe sintetizado de ativação (Stark Chime)
@@ -410,8 +444,9 @@ void setup() {
   tft.setCursor(30, 90);
   tft.println("Conectando a rede Wi-Fi...");
 
-  // Inicializa Áudio I2S
+  // Inicializa Áudio I2S (Saída no alto-falante e Entrada no microfone)
   setupI2SAudio();
+  setupI2SMicrophone();
 
   // Conexão Wi-Fi
   WiFi.mode(WIFI_STA);

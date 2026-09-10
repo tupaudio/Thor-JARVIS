@@ -29,12 +29,12 @@ O ESP32-S3 atua como **dois módulos em um**:
 
 ---
 
-### 2. 🔊 Amplificador I2S MAX98357A & Alto-falante 4Ω 3W
+### 2. 🔊 Amplificador I2S MAX98357A & Alto-falante 4Ω 3W (Saída de Áudio)
 | Pino no MAX98357A | Conexão no ESP32-S3 | Observação |
 | :--- | :--- | :--- |
 | **Vin / VDD** | **5V** | Use 5V para atingir os 3W máximos de saída de áudio |
 | **GND** | **GND** | Linha de terra comum |
-| **BCLK** | **GPIO 15** | Bit Clock do protocolo I2S |
+| **BCLK** | **GPIO 15** | Bit Clock do protocolo I2S (Canal I2S_NUM_0) |
 | **LRC / WS** | **GPIO 16** | Word Select (Left/Right Clock) |
 | **DIN** | **GPIO 17** | Data Input de áudio digital |
 | **GAIN** | *Desconectado* | Deixe livre para ganho padrão de +12dB |
@@ -43,7 +43,19 @@ O ESP32-S3 atua como **dois módulos em um**:
 
 ---
 
-### 3. ⚡ Conexão Serial com o Arduino UNO (Ponte de Comandos)
+### 3. 🎙️ Microfone MEMS I2S INMP441 (Entrada de Voz Digital)
+| Pino no INMP441 | Conexão no ESP32-S3 | Observação |
+| :--- | :--- | :--- |
+| **VDD** | **3.3V** | **NÃO LIGAR EM 5V!** O microfone opera a 3.3V |
+| **GND** | **GND** | Linha de terra comum |
+| **SCK** | **GPIO 1** | Serial Clock I2S (Canal I2S_NUM_1) |
+| **WS** | **GPIO 2** | Word Select / Frame Sync (16 kHz) |
+| **SD** | **GPIO 3** | Serial Data Output (Voz digital de 24-bit) |
+| **L/R** | **GND** | Seleciona Canal Esquerdo (Left) |
+
+---
+
+### 4. ⚡ Conexão Serial com o Arduino UNO (Ponte de Comandos)
 | Pino no ESP32-S3 | Conexão no Arduino UNO | Segurança Elétrica |
 | :--- | :--- | :--- |
 | **GND** | **GND** | **OBRIGATÓRIO:** GND de ambos deve ser interligado! |
