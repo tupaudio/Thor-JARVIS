@@ -1,0 +1,70 @@
+# ==============================================================================
+# SEGURANÇA E PRIVACIDADE - NUNCA ENVIAR PARA O GIT
+# ==============================================================================
+
+# Chaves de API e Variáveis de Ambiente
+.env
+*.env
+!.env.example
+
+# Credenciais e Tokens do Google OAuth
+credentials.json
+token.json
+token.pickle
+!credentials.example.json
+
+# Cache de Sessão e Tokens do Spotify
+.spotify_cache
+.cache
+.cache-*
+
+# Agenda de Contatos Pessoais
+contatos.json
+!contatos.example.json
+
+# Mídia Pessoal Gerada Localmente (Fotos da Webcam, Prints e Áudios)
+*.jpg
+*.jpeg
+*.png
+*.mp3
+*.wav
+webcam_jarvis.jpg
+alerta_sentinela.jpg
+screenshot_jarvis.png
+jarvis_speech.mp3
+jarvis_telegram_voice.mp3
+test_voice.mp3
+
+# ==============================================================================
+# AMBIENTE PYTHON E ARQUIVOS TEMPORÁRIOS
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Ambientes Virtuais
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ==============================================================================
+# SISTEMA OPERACIONAL E IDES
+# ==============================================================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.tmp
+*.log

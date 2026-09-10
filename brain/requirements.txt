@@ -1,0 +1,49 @@
+# SDK Oficial da Google Gemini API
+google-genai>=2.22.0
+
+# Comunicação Serial com o Arduino
+pyserial>=3.5
+
+# Voz e Áudio (Text-to-Speech com vozes neurais realistas)
+edge-tts>=7.2.8
+sounddevice>=0.5.6
+
+# Reconhecimento de Fala
+SpeechRecognition>=3.17.0
+
+# Integrações Google (Calendar e Gmail)
+google-api-python-client>=2.200.0
+google-auth-oauthlib>=1.4.1
+google-auth-httplib2>=0.4.2
+
+# Variáveis de ambiente e utilitários de rede
+python-dotenv>=1.2.3
+requests>=2.34.2
+
+# Waze e Rotas
+WazeRouteCalculator>=0.16
+geopy>=2.5.0
+
+# Notion API
+notion-client>=3.1.0
+
+# Spotify Web API
+spotipy>=2.26.0
+
+# Automação do Windows e Áudio
+psutil>=7.2.2
+pycaw>=20251023
+comtypes>=1.4.16
+Pillow>=12.3.0
+pywhatkit>=5.4
+
+# Visão Computacional e Câmera (Headless para evitar conflitos no Windows)
+opencv-python-headless>=5.0.0.93
+
+# Casa Inteligente / IoT
+tinytuya>=1.20.0
+
+# Busca Web em Tempo Real e Transcrições do YouTube
+ddgs>=9.16.0
+duckduckgo-search>=8.1.1
+youtube-transcript-api>=1.2.4

@@ -1,0 +1,58 @@
+{
+  "luz_quarto": {
+    "nome": "Luz do Quarto",
+    "tipo": "lampada",
+    "comodo": "quarto",
+    "protocolo": "simulado",
+    "status": "ligado",
+    "brilho": 100,
+    "cor": "branco quente",
+    "ip": "",
+    "device_id": "",
+    "local_key": "",
+    "webhook_on": "",
+    "webhook_off": ""
+  },
+  "fita_led": {
+    "nome": "Fita LED da Mesa",
+    "tipo": "led",
+    "comodo": "estacao",
+    "protocolo": "simulado",
+    "status": "ligado",
+    "brilho": 80,
+    "cor": "branco quente",
+    "ip": "",
+    "device_id": "",
+    "local_key": "",
+    "webhook_on": "",
+    "webhook_off": ""
+  },
+  "tomada_bancada": {
+    "nome": "Tomada da Bancada",
+    "tipo": "tomada",
+    "comodo": "estacao",
+    "protocolo": "simulado",
+    "status": "ligado",
+    "brilho": 100,
+    "cor": "",
+    "ip": "",
+    "device_id": "",
+    "local_key": "",
+    "webhook_on": "",
+    "webhook_off": ""
+  },
+  "abajur": {
+    "nome": "Abajur",
+    "tipo": "lampada",
+    "comodo": "quarto",
+    "protocolo": "simulado",
+    "status": "ligado",
+    "brilho": 100,
+    "cor": "ambar",
+    "ip": "",
+    "device_id": "",
+    "local_key": "",
+    "webhook_on": "",
+    "webhook_off": ""
+  }
+}
