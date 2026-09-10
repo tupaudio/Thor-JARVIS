@@ -6,6 +6,8 @@ Controle de Voz, Automações e Simulador de Hardware
 import os
 import sys
 import time
+import random
+import threading
 from datetime import datetime
 from dotenv import load_dotenv
 from google import genai
@@ -567,8 +569,11 @@ def main():
         )
     )
     
+    # Trava de concorrência thread-safe para o chat
+    chat_lock = threading.Lock()
+
     # Inicializar listener do Telegram Bot em segundo plano
-    telegram_service.iniciar_em_segundo_plano(gemini_chat=chat)
+    telegram_service.iniciar_em_segundo_plano(gemini_chat=chat, chat_lock=chat_lock)
 
     saudacao_inicial = "Sistemas online e operantes, senhor. O braço robótico e o painel visual estão em prontidão. Como posso auxiliá-lo hoje?"
     hardware.atualizar_tela(titulo="JARVIS ONLINE", subtitulo="Aguardando comandos...", icone="⚡")
@@ -602,32 +607,35 @@ def main():
 
             print(f"\n🤔 [JARVIS PROCESSANDO] Analisando sua solicitação...")
             
-            # Envio resiliente com retry contra oscilações de 503 / demanda da Google
+            # Envio resiliente thread-safe com backoff exponencial e jitter
             resposta = None
             for tentativa in range(3):
                 try:
-                    resposta = chat.send_message(mensagem_usuario)
+                    with chat_lock:
+                        resposta = chat.send_message(mensagem_usuario)
                     break
                 except Exception as e_gem:
                     err_msg = str(e_gem)
                     if any(t in err_msg for t in ["503", "UNAVAILABLE", "high demand", "429"]):
-                        print(f"⚠️ [GEMINI] Servidor com alta demanda temporária (503). Retentando ({tentativa+1}/3)...")
-                        time.sleep(2)
+                        espera = min(2 ** tentativa + random.uniform(0.1, 0.9), 8)
+                        print(f"⚠️ [GEMINI] Servidor com alta demanda temporária (503). Retentando em {espera:.1f}s ({tentativa+1}/3)...")
+                        time.sleep(espera)
                     else:
                         raise e_gem
 
-            # Se as 3 tentativas falharem com 503, aciona o modelo secundário gemini-3.6-flash
+            # Se as 3 tentativas falharem com 503, aciona o modelo secundário gemini-2.5-flash
             if not resposta:
-                print("🔄 [GEMINI] Alternando para rota de contingência (gemini-3.6-flash)...")
+                print("🔄 [GEMINI] Alternando para rota de contingência (gemini-2.5-flash)...")
                 chat_secundario = client.chats.create(
-                    model="gemini-3.6-flash",
+                    model="gemini-2.5-flash",
                     config=types.GenerateContentConfig(
                         system_instruction=JARVIS_SYSTEM_INSTRUCTION,
                         tools=JARVIS_TOOLS,
                         temperature=0.7,
                     )
                 )
-                resposta = chat_secundario.send_message(mensagem_usuario)
+                with chat_lock:
+                    resposta = chat_secundario.send_message(mensagem_usuario)
             
             texto_resposta = resposta.text if resposta.text else "Comando executado com sucesso, senhor."
             voice_engine.speak(texto_resposta)

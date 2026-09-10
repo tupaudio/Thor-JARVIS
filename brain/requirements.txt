@@ -4,8 +4,9 @@ google-genai>=2.22.0
 # Comunicação Serial com o Arduino
 pyserial>=3.5
 
-# Voz e Áudio (Text-to-Speech com vozes neurais realistas)
+# Voz e Áudio (Text-to-Speech com vozes neurais realistas e playback in-memory)
 edge-tts>=7.2.8
+pygame-ce>=2.5.0
 sounddevice>=0.5.6
 
 # Reconhecimento de Fala

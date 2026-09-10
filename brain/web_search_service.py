@@ -18,6 +18,13 @@ load_dotenv(env_path)
 class WebSearchService:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
+        self._gemini_client = None
+
+    def _get_gemini_client(self):
+        if self._gemini_client is None:
+            from google import genai
+            self._gemini_client = genai.Client(api_key=self.api_key)
+        return self._gemini_client
 
     def _obter_ddgs(self):
         try:
@@ -144,8 +151,7 @@ class WebSearchService:
 
             print(f"🧠 [YOUTUBE SUMMARIZER] Analisando {len(texto_completo)} caracteres com Gemini...")
             
-            from google import genai
-            client = genai.Client(api_key=self.api_key)
+            client = self._get_gemini_client()
             
             foco = f"Foco solicitado pelo usuário: {instrucao}." if instrucao else ""
             prompt = (

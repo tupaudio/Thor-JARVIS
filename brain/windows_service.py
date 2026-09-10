@@ -248,6 +248,13 @@ class WindowsService:
             return "Foto capturada pela câmera frontal e enviada com sucesso para o seu Telegram, senhor!"
         return "Capturei a foto, mas houve uma oscilação no envio para o Telegram. O arquivo está salvo localmente."
 
+    def _get_gemini_client(self):
+        if not hasattr(self, "_gemini_client") or self._gemini_client is None:
+            from google import genai
+            api_key = os.getenv("GEMINI_API_KEY")
+            self._gemini_client = genai.Client(api_key=api_key)
+        return self._gemini_client
+
     def analisar_tela(self, pergunta: str = "") -> str:
         """Tira um print da tela e analisa com a visão multimodal do Gemini."""
         caminho = self.capturar_tela()
@@ -255,12 +262,9 @@ class WindowsService:
             return "Não consegui capturar a imagem da sua tela no momento, senhor."
 
         try:
-            from google import genai
-            from google.genai import types
             from PIL import Image
             
-            api_key = os.getenv("GEMINI_API_KEY")
-            client = genai.Client(api_key=api_key)
+            client = self._get_gemini_client()
             imagem = Image.open(caminho)
             
             prompt = pergunta if pergunta else "Analise o que está visível na tela deste computador e faça um resumo conciso e objetivo para o usuário."
@@ -280,11 +284,9 @@ class WindowsService:
             return "Não foi possível acessar a câmera frontal, senhor."
 
         try:
-            from google import genai
             from PIL import Image
             
-            api_key = os.getenv("GEMINI_API_KEY")
-            client = genai.Client(api_key=api_key)
+            client = self._get_gemini_client()
             imagem = Image.open(caminho)
             
             prompt = pergunta if pergunta else "Descreva o que a câmera frontal do computador está vendo agora. Seja educado, conciso e chame o usuário de senhor."

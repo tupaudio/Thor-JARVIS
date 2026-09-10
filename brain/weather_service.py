@@ -35,6 +35,7 @@ WMO_CODES = {
 
 class WeatherService:
     def __init__(self):
+        self.session = requests.Session()
         self.geolocator = Nominatim(user_agent="jarvis_weather_agent")
 
     def _obter_coordenadas(self, local: str):
@@ -72,7 +73,7 @@ class WeatherService:
         )
 
         try:
-            res = requests.get(url, timeout=10)
+            res = self.session.get(url, timeout=10)
             if res.status_code != 200:
                 return f"Não foi possível obter os dados meteorológicos para {nome_cidade} no momento."
 

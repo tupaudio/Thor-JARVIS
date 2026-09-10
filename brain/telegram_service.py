@@ -10,6 +10,7 @@ import time
 import json
 import asyncio
 import threading
+import random
 import requests
 from dotenv import load_dotenv
 
@@ -29,6 +30,7 @@ class TelegramBotService:
         self.polling_active = False
         self.last_update_id = 0
         self.gemini_chat = None
+        self.chat_lock = threading.Lock()
         self.temp_voice_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "jarvis_telegram_voice.mp3"))
 
     @property
@@ -172,13 +174,15 @@ class TelegramBotService:
             print(f"⚠️ [TELEGRAM] Falha ao sintetizar áudio: {e}")
             return ""
 
-    def conectar_gemini(self, gemini_chat):
-        """Associa a sessão do Gemini AI ao bot do Telegram."""
+    def conectar_gemini(self, gemini_chat, chat_lock=None):
+        """Associa a sessão do Gemini AI ao bot do Telegram com proteção de concorrência."""
         self.gemini_chat = gemini_chat
+        if chat_lock is not None:
+            self.chat_lock = chat_lock
 
     def processar_comando_remoto(self, texto_comando: str, chat_id: str) -> str:
         """
-        Envia o comando do Telegram para o cérebro Gemini do JARVIS e devolve a resposta.
+        Envia o comando do Telegram para o cérebro Gemini do JARVIS e devolve a resposta de forma thread-safe.
         """
         if not self.gemini_chat:
             from google import genai
@@ -199,12 +203,14 @@ class TelegramBotService:
         print(f"\n📱 [TELEGRAM MENSAGEM RECEBIDA]: \"{texto_comando}\"")
         for tentativa in range(3):
             try:
-                resposta = self.gemini_chat.send_message(texto_comando)
+                with self.chat_lock:
+                    resposta = self.gemini_chat.send_message(texto_comando)
                 return resposta.text if resposta.text else "Comando executado com sucesso, senhor."
             except Exception as e:
                 err_msg = str(e)
                 if any(t in err_msg for t in ["503", "UNAVAILABLE", "high demand", "429"]):
-                    time.sleep(2)
+                    espera = min(2 ** tentativa + random.uniform(0.1, 0.9), 8)
+                    time.sleep(espera)
                 else:
                     return f"Desculpe, senhor. Tive um imprevisto ao processar sua solicitação: {e}"
         
@@ -296,14 +302,14 @@ class TelegramBotService:
             except Exception:
                 time.sleep(3)
 
-    def iniciar_em_segundo_plano(self, gemini_chat=None):
+    def iniciar_em_segundo_plano(self, gemini_chat=None, chat_lock=None):
         """Inicia a escuta de mensagens do Telegram em uma thread separada."""
         if not self.is_configured():
             print("ℹ️  [TELEGRAM] TELEGRAM_BOT_TOKEN não configurado. Listener remoto desativado.")
             return
         
         if gemini_chat:
-            self.conectar_gemini(gemini_chat)
+            self.conectar_gemini(gemini_chat, chat_lock=chat_lock)
             
         thread = threading.Thread(target=self.polling_loop, daemon=True, name="JarvisTelegramBot")
         thread.start()

@@ -17,57 +17,55 @@ import speech_recognition as sr
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
 
+import pygame
+import time
+
 class VoiceEngine:
     def __init__(self, voice_name: str = "pt-BR-AntonioNeural"):
         self.voice_name = voice_name
         self.recognizer = sr.Recognizer()
         self.sample_rate = 16000
-        self.temp_audio_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "jarvis_speech.mp3"))
+        try:
+            pygame.mixer.init()
+        except Exception as e:
+            print(f"⚠️ [VOZ] Falha ao inicializar pygame.mixer: {e}")
 
-    async def _generate_audio(self, text: str):
+    async def _generate_audio_bytes(self, text: str) -> bytes:
         communicate = edge_tts.Communicate(text, self.voice_name)
-        await communicate.save(self.temp_audio_file)
+        audio_stream = bytearray()
+        async for chunk in communicate.stream():
+            if chunk.get("type") == "audio":
+                audio_stream.extend(chunk.get("data", b""))
+        return bytes(audio_stream)
 
     def speak(self, text: str):
         """
-        Sintetiza e reproduz a fala do JARVIS pelo alto-falante até o final sem cortes.
+        Sintetiza e reproduz a fala do JARVIS diretamente da memória RAM via pygame.mixer.
+        Elimina overhead de processos externos (PowerShell) e I/O de disco.
         """
         print(f"\n🎙️ [JARVIS]: \"{text}\"")
         try:
-            asyncio.run(self._generate_audio(text))
-            normalized_path = self.temp_audio_file.replace(os.sep, "/")
-            ps_command = f'''
-            Add-Type -AssemblyName presentationCore
-            $player = New-Object system.windows.media.mediaplayer
-            $player.open('{normalized_path}')
+            audio_bytes = asyncio.run(self._generate_audio_bytes(text))
+            if not audio_bytes:
+                return
+
+            bio = io.BytesIO(audio_bytes)
+            pygame.mixer.music.load(bio)
+            pygame.mixer.music.play()
             
-            # Aguarda o Windows carregar o arquivo e calcular a duração exata
-            $timeout = 0
-            while (-not $player.NaturalDuration.HasTimeSpan -and $timeout -lt 50) {{
-                Start-Sleep -Milliseconds 100
-                $timeout++
-            }}
-            
-            if ($player.NaturalDuration.HasTimeSpan) {{
-                $duration = $player.NaturalDuration.TimeSpan.TotalSeconds
-                $player.Play()
-                Start-Sleep -Milliseconds 200
-                while ($player.Position.TotalSeconds -lt ($duration - 0.2)) {{
-                    Start-Sleep -Milliseconds 100
-                }}
-                Start-Sleep -Milliseconds 500
-            }} else {{
-                # Fallback seguro caso não detecte duração
-                $player.Play()
-                Start-Sleep -Seconds 12
-            }}
-            
-            $player.Stop()
-            $player.Close()
-            '''
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps_command], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            while pygame.mixer.music.get_busy():
+                time.sleep(0.04)
+
         except Exception as e:
             print(f"[VOZ AVISO] Erro ao reproduzir voz: {e}")
+
+    def parar(self):
+        """Interrompe a fala do assistente imediatamente (barge-in)."""
+        try:
+            if pygame.mixer.music.get_busy():
+                pygame.mixer.music.stop()
+        except Exception:
+            pass
 
     def listen(self, duration: int = 5) -> str:
         """

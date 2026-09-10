@@ -38,6 +38,7 @@ CORES_RGB = {
 
 class IoTService:
     def __init__(self):
+        self.session = requests.Session()
         self.dispositivos = self._carregar_dispositivos()
 
     def _carregar_dispositivos(self) -> dict:
@@ -132,7 +133,7 @@ class IoTService:
         elif proto == "tasmota" and ip:
             try:
                 cmd_tasmota = "ON" if comando == "ligar" else "OFF"
-                requests.get(f"http://{ip}/cm?cmnd=Power%20{cmd_tasmota}", timeout=3)
+                self.session.get(f"http://{ip}/cm?cmnd=Power%20{cmd_tasmota}", timeout=3)
             except Exception as e:
                 print(f"⚠️ [IOT TASMOTA] Falha em {chave}: {e}")
 
@@ -141,7 +142,7 @@ class IoTService:
             url = disp.get("webhook_on") if comando == "ligar" else disp.get("webhook_off")
             if url:
                 try:
-                    requests.get(url, timeout=4)
+                    self.session.get(url, timeout=4)
                 except Exception as e:
                     print(f"⚠️ [IOT WEBHOOK] Falha em {chave}: {e}")
 
@@ -158,7 +159,7 @@ class IoTService:
                     payload = {"entity_id": dev_id or chave}
                     if comando == "brilho" and valor.isdigit():
                         payload["brightness_pct"] = int(valor)
-                    requests.post(url, headers=headers, json=payload, timeout=4)
+                    self.session.post(url, headers=headers, json=payload, timeout=4)
                 except Exception as e:
                     print(f"⚠️ [IOT HOMEASSISTANT] Falha em {chave}: {e}")
 
@@ -199,7 +200,7 @@ class IoTService:
 
             elif acao_limpa in ["alternar", "toggle"]:
                 novo = "desligado" if disp.get("status") == "ligado" else "ligado"
-                disp["status"] = "novo"
+                disp["status"] = novo
                 self._executar_dispositivo(chave, novo)
                 alterados.append(f"{nome} ({novo})")
 

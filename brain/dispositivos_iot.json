@@ -46,7 +46,7 @@
     "tipo": "lampada",
     "comodo": "quarto",
     "protocolo": "simulado",
-    "status": "ligado",
+    "status": "desligado",
     "brilho": 100,
     "cor": "ambar",
     "ip": "",
