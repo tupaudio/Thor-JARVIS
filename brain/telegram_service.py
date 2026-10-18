@@ -201,6 +201,22 @@ class TelegramBotService:
             )
 
         print(f"\n📱 [TELEGRAM MENSAGEM RECEBIDA]: \"{texto_comando}\"")
+
+        # ROTEAMENTO HÍBRIDO / LOCAL
+        try:
+            from ai_router import ai_router
+            import main
+            st_ai = ai_router.obter_status()
+            if st_ai["modo"] in ["hybrid", "local_only"]:
+                if st_ai["modo"] == "local_only" or ai_router.is_tarefa_local(texto_comando):
+                    resp_local = main.executar_comando_local_rapido(texto_comando)
+                    if resp_local:
+                        return f"⚡ [LOCAL]: {resp_local}"
+                    elif st_ai["modo"] == "local_only":
+                        return "Operando em modo 100% local. Este comando específico requer conexão com a nuvem, senhor."
+        except Exception as e_rot:
+            print(f"⚠️ [TELEGRAM ROUTER]: {e_rot}")
+
         for tentativa in range(3):
             try:
                 with self.chat_lock:

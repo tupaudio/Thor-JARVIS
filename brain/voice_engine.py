@@ -97,9 +97,9 @@ class VoiceEngine:
         except Exception:
             pass
 
-    def listen(self, duration: int = 5) -> str:
+    def listen(self, duration: int = 15) -> str:
         """
-        Captura áudio do microfone do PC usando SoundDevice e converte em texto.
+        Captura áudio do microfone usando SoundDevice e converte em texto.
         """
         try:
             print(f"\n🎧 [OUVINDO...] Fale agora senhor (gravando {duration} segundos)...")

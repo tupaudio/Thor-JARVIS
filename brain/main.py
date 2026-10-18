@@ -30,6 +30,7 @@ from web_search_service import web_search_service
 from protocols_service import protocols_service
 from file_manager_service import file_manager_service
 from sentinel_service import sentinel_service
+from ai_router import ai_router
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -471,6 +472,111 @@ def mudar_personalidade_ia(nome_personalidade: str) -> str:
     voice_engine.voice_name = p["voz"]
     return saudacao
 
+def mudar_motor_ia(modo_ou_provedor: str) -> str:
+    """
+    Altera o motor de inteligência artificial ou modo de operação do JARVIS.
+    
+    Args:
+        modo_ou_provedor: Pode ser um modo ('hibrido', 'local', 'nuvem') ou um provedor ('gemini', 'chatgpt', 'claude').
+    """
+    termo = modo_ou_provedor.lower().strip()
+    if termo in ["hibrido", "híbrido", "hybrid", "local", "local_only", "offline", "nuvem", "cloud", "cloud_only"]:
+        return ai_router.definir_modo(termo)
+    elif any(p in termo for p in ["gemini", "google", "chatgpt", "openai", "gpt", "claude", "anthropic"]):
+        return ai_router.definir_provedor_nuvem(termo)
+    else:
+        return (
+            f"Configuração '{modo_ou_provedor}' não compreendida. "
+            "Você pode escolher os modos: 'híbrido', 'local' ou 'nuvem', "
+            "ou os motores: 'gemini', 'chatgpt' ou 'claude'."
+        )
+
+def consultar_status_motores_ia() -> str:
+    """Retorna o estado atual dos motores de IA (Modo Híbrido/Local/Nuvem, Ollama e Provedor Online)."""
+    st = ai_router.obter_status()
+    ollama_msg = "Online ✅" if st["ollama_online"] else "Offline/Não detectado ⚠️"
+    return (
+        f"Configuração Atual do Cérebro:\n"
+        f"• Modo de Operação: {st['modo'].upper()}\n"
+        f"• Provedor de Nuvem: {st['provedor_nuvem'].upper()}\n"
+        f"• Modelo Local (Ollama): {st['modelo_local']} ({ollama_msg})"
+    )
+
+def executar_comando_local_rapido(comando: str) -> str:
+    """
+    Processa e executa comandos simples locais (IoT, volume, programas, status, braço)
+    sem precisar consultar os servidores na nuvem.
+    """
+    c = comando.lower().strip()
+    
+    # 1. Luzes / IoT
+    if any(k in c for k in ["luz", "lampada", "lâmpada", "fita led", "led", "tomada"]):
+        if any(k in c for k in ["apagar", "desligar"]):
+            return iot_service.controlar("luz", "desligar")
+        elif any(k in c for k in ["ligar", "acender"]):
+            return iot_service.controlar("luz", "ligar")
+        elif "status" in c or "como est" in c:
+            return iot_service.listar_status()
+            
+    # 2. Volume do Windows
+    if "volume" in c:
+        if any(k in c for k in ["mudo", "mutar", "silencio"]):
+            return windows_service.controlar_volume("mutar")
+        import re
+        nums = re.findall(r'\b\d+\b', c)
+        if nums:
+            return windows_service.controlar_volume("definir", int(nums[0]))
+        elif any(k in c for k in ["aumentar", "subir", "mais alto"]):
+            return windows_service.controlar_volume("aumentar", 15)
+        elif any(k in c for k in ["diminuir", "abaixar", "mais baixo"]):
+            return windows_service.controlar_volume("diminuir", 15)
+        elif "desmut" in c:
+            return windows_service.controlar_volume("desmutar")
+            
+    # 3. Bloquear PC
+    if any(k in c for k in ["bloquear", "bloqueie", "trancar", "tranque"]):
+        return windows_service.bloquear_tela()
+        
+    # 4. Programas
+    if any(k in c for k in ["abrir", "abra"]):
+        for prog in ["vs code", "vscode", "chrome", "edge", "spotify", "steam", "calculadora", "bloco de notas"]:
+            if prog in c:
+                return windows_service.iniciar_aplicativo(prog)
+    if any(k in c for k in ["fechar", "feche"]):
+        for prog in ["chrome", "spotify", "notepad", "code"]:
+            if prog in c:
+                return windows_service.fechar_aplicativo(prog)
+                
+    # 5. Status do PC
+    if any(k in c for k in ["status do pc", "computador", "cpu", "memoria", "memória", "temperatura"]):
+        return windows_service.obter_telemetria()
+        
+    # 6. Braço Robótico
+    if any(k in c for k in ["acenar", "acene", "dar tchau"]):
+        return hardware.mover_braco("acenar", "Saudação executada")
+    elif any(k in c for k in ["apontar", "aponte"]):
+        return hardware.mover_braco("apontar", "Direcionamento visual")
+    elif any(k in c for k in ["repouso", "descansar", "abaixar braço"]):
+        return hardware.mover_braco("repouso", "Posição de descanso")
+    elif any(k in c for k in ["positivo", "joia", "joinha"]):
+        return hardware.mover_braco("positivo", "Confirmação afirmativa")
+        
+    # 7. Data e Hora
+    if any(k in c for k in ["que horas", "hora atual", "horario"]):
+        agora = datetime.now().strftime("%H:%M")
+        return f"Agora são {agora}, senhor."
+    if any(k in c for k in ["que dia", "data de hoje"]):
+        hoje = datetime.now().strftime("%d/%m/%Y")
+        return f"Hoje é dia {hoje}, senhor."
+
+    # Se tiver Ollama disponível, passa para ele interpretar
+    if ai_router.testar_ollama_online():
+        res = ai_router.executar_local(comando)
+        if res.get("sucesso"):
+            return res.get("resposta")
+
+    return ""
+
 # Lista de funções para o Gemini
 JARVIS_TOOLS = [
     mover_braco_mecanico,
@@ -513,6 +619,8 @@ JARVIS_TOOLS = [
     desativar_modo_sentinela,
     consultar_status_sentinela,
     mudar_personalidade_ia,
+    mudar_motor_ia,
+    consultar_status_motores_ia,
     consultar_data_hora_atual
 ]
 
@@ -553,6 +661,8 @@ DIRETRIZES DE PERSONALIDADE:
    - Se o usuário pedir para ativar um protocolo ou rotina (ex: 'protocolo foco', 'modo trabalho', 'protocolo cinema', 'modo filme', 'sair da base', 'trancar estação' ou 'bom dia'), use 'executar_protocolo_stark'.
    - Se o usuário pedir para organizar a pasta de downloads ou área de trabalho (desktop), use 'organizar_arquivos_pasta'. Para ver o diagnóstico dos arquivos soltos antes de organizar, use 'analisar_arquivos_pasta'.
    - Se o usuário pedir para ativar o modo sentinela, vigiar a mesa/câmera ou monitorar intrusos, use 'ativar_modo_sentinela'. Para desativar, use 'desativar_modo_sentinela' e para ver o status use 'consultar_status_sentinela'.
+   - Se o usuário pedir para mudar o motor de inteligência (ex: 'mude para o ChatGPT', 'mude para o Claude', 'mude para o Gemini', 'ative o modo híbrido', 'use o modo local/offline' ou 'modo nuvem'), use 'mudar_motor_ia'.
+   - Se o usuário perguntar qual motor de IA ou modelo está ativo no momento, use 'consultar_status_motores_ia'.
    - Sempre que fizer uma ação importante, atualize a tela com 'atualizar_painel_visual'.
 4. Confirme as ações com o estilo e personalidade atualmente ativados.
 """
@@ -623,10 +733,27 @@ def main():
                 if not mensagem_usuario:
                     hardware.desenhar_rosto_oled("NEUTRO")
                     continue
-            else:
-                mensagem_usuario = modo
+            mensagem_usuario = modo if modo != "" else mensagem_usuario
 
-            print(f"\n🤔 [JARVIS PROCESSANDO] Analisando sua solicitação...")
+            # ROTEAMENTO HÍBRIDO / LOCAL AUTOMÁTICO
+            st_ai = ai_router.obter_status()
+            if st_ai["modo"] in ["hybrid", "local_only"]:
+                # Se for local_only ou uma tarefa simples local no modo híbrido
+                if st_ai["modo"] == "local_only" or ai_router.is_tarefa_local(mensagem_usuario):
+                    print(f"⚡ [ROTEADOR IA] Direcionando para processamento LOCAL rápido...")
+                    resp_local = executar_comando_local_rapido(mensagem_usuario)
+                    if resp_local:
+                        voice_engine.speak(resp_local)
+                        hardware.desenhar_rosto_oled("FALANDO")
+                        time.sleep(0.5)
+                        hardware.desenhar_rosto_oled("NEUTRO")
+                        continue
+                    elif st_ai["modo"] == "local_only":
+                        msg_offline = "Operando em modo 100% local. Este comando específico requer conexão com os modelos da nuvem, senhor."
+                        voice_engine.speak(msg_offline)
+                        continue
+
+            print(f"\n🤔 [JARVIS PROCESSANDO] Analisando sua solicitação via Nuvem ({st_ai['provedor_nuvem'].upper()})...")
             
             # Envio resiliente thread-safe com backoff exponencial e jitter
             resposta = None
