@@ -167,12 +167,19 @@ class TelegramBotService:
             com = edge_tts.Communicate(texto, voice_name)
             await com.save(self.temp_voice_file)
         
-        try:
-            asyncio.run(_gerar())
-            return self.temp_voice_file
-        except Exception as e:
-            print(f"⚠️ [TELEGRAM] Falha ao sintetizar áudio: {e}")
-            return ""
+        def _rodar_async():
+            novo_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(novo_loop)
+            try:
+                novo_loop.run_until_complete(_gerar())
+                return self.temp_voice_file
+            except Exception as e:
+                print(f"⚠️ [TELEGRAM] Falha ao sintetizar áudio: {e}")
+                return ""
+            finally:
+                novo_loop.close()
+
+        return _rodar_async()
 
     def conectar_gemini(self, gemini_chat, chat_lock=None):
         """Associa a sessão do Gemini AI ao bot do Telegram com proteção de concorrência."""

@@ -535,13 +535,13 @@ def executar_comando_local_rapido(comando: str) -> str:
             
     # 3. Bloquear PC
     if any(k in c for k in ["bloquear", "bloqueie", "trancar", "tranque"]):
-        return windows_service.bloquear_tela()
+        return windows_service.bloquear_computador()
         
     # 4. Programas
     if any(k in c for k in ["abrir", "abra"]):
         for prog in ["vs code", "vscode", "chrome", "edge", "spotify", "steam", "calculadora", "bloco de notas"]:
             if prog in c:
-                return windows_service.iniciar_aplicativo(prog)
+                return windows_service.abrir_aplicativo(prog)
     if any(k in c for k in ["fechar", "feche"]):
         for prog in ["chrome", "spotify", "notepad", "code"]:
             if prog in c:
