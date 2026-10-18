@@ -755,37 +755,48 @@ def main():
 
             print(f"\n🤔 [JARVIS PROCESSANDO] Analisando sua solicitação via Nuvem ({st_ai['provedor_nuvem'].upper()})...")
             
-            # Envio resiliente thread-safe com backoff exponencial e jitter
-            resposta = None
-            for tentativa in range(3):
-                try:
-                    with chat_lock:
-                        resposta = chat.send_message(mensagem_usuario)
-                    break
-                except Exception as e_gem:
-                    err_msg = str(e_gem)
-                    if any(t in err_msg for t in ["503", "UNAVAILABLE", "high demand", "429"]):
-                        espera = min(2 ** tentativa + random.uniform(0.1, 0.9), 8)
-                        print(f"⚠️ [GEMINI] Servidor com alta demanda temporária (503). Retentando em {espera:.1f}s ({tentativa+1}/3)...")
-                        time.sleep(espera)
-                    else:
-                        raise e_gem
+            # Envio resiliente multi-provedor
+            provedor = ai_router.cloud_provider
+            texto_resposta = ""
 
-            # Se as 3 tentativas falharem com 503, aciona o modelo secundário gemini-2.5-flash
-            if not resposta:
-                print("🔄 [GEMINI] Alternando para rota de contingência (gemini-2.5-flash)...")
-                chat_secundario = client.chats.create(
-                    model="gemini-2.5-flash",
-                    config=types.GenerateContentConfig(
-                        system_instruction=JARVIS_SYSTEM_INSTRUCTION,
-                        tools=JARVIS_TOOLS,
-                        temperature=0.7,
+            if provedor == "openai":
+                print("🧠 [OPENAI] Processando via ChatGPT (gpt-4o-mini)...")
+                texto_resposta = ai_router.executar_nuvem_openai(mensagem_usuario, system_instruction=JARVIS_SYSTEM_INSTRUCTION)
+            elif provedor == "claude":
+                print("🧠 [CLAUDE] Processando via Anthropic Claude...")
+                texto_resposta = ai_router.executar_nuvem_claude(mensagem_usuario, system_instruction=JARVIS_SYSTEM_INSTRUCTION)
+            else:
+                # Padrão: Google Gemini com Function Calling
+                resposta = None
+                for tentativa in range(3):
+                    try:
+                        with chat_lock:
+                            resposta = chat.send_message(mensagem_usuario)
+                        break
+                    except Exception as e_gem:
+                        err_msg = str(e_gem)
+                        if any(t in err_msg for t in ["503", "UNAVAILABLE", "high demand", "429"]):
+                            espera = min(2 ** tentativa + random.uniform(0.1, 0.9), 8)
+                            print(f"⚠️ [GEMINI] Servidor com alta demanda temporária (503). Retentando em {espera:.1f}s ({tentativa+1}/3)...")
+                            time.sleep(espera)
+                        else:
+                            raise e_gem
+
+                if not resposta:
+                    print("🔄 [GEMINI] Alternando para rota de contingência (gemini-2.5-flash)...")
+                    chat_secundario = client.chats.create(
+                        model="gemini-2.5-flash",
+                        config=types.GenerateContentConfig(
+                            system_instruction=JARVIS_SYSTEM_INSTRUCTION,
+                            tools=JARVIS_TOOLS,
+                            temperature=0.7,
+                        )
                     )
-                )
-                with chat_lock:
-                    resposta = chat_secundario.send_message(mensagem_usuario)
+                    with chat_lock:
+                        resposta = chat_secundario.send_message(mensagem_usuario)
+                
+                texto_resposta = resposta.text if resposta.text else "Comando executado com sucesso, senhor."
             
-            texto_resposta = resposta.text if resposta.text else "Comando executado com sucesso, senhor."
             voice_engine.speak(texto_resposta)
 
         except KeyboardInterrupt:

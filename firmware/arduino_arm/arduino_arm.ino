@@ -147,7 +147,22 @@ void moverSuave(Servo &servo, int &posAtual, int posAlvo, int delayMs = 12) {
   posAtual = posAlvo;
 }
 
+void garantirServosAtivos() {
+  if (!servoBase.attached()) servoBase.attach(PIN_BASE);
+  if (!servoOmbro.attached()) servoOmbro.attach(PIN_OMBRO);
+  if (!servoCotovelo.attached()) servoCotovelo.attach(PIN_COTOVELO);
+  if (!servoGarra.attached()) servoGarra.attach(PIN_GARRA);
+}
+
+void desenergizarServos() {
+  servoBase.detach();
+  servoOmbro.detach();
+  servoCotovelo.detach();
+  servoGarra.detach();
+}
+
 void posturaProntidao() {
+  garantirServosAtivos();
   expressaoAtual = FACE_NEUTRO;
   atualizarDisplay();
   moverSuave(servoGarra, posGarra, 30);
@@ -157,15 +172,19 @@ void posturaProntidao() {
 }
 
 void posturaDescanso() {
+  garantirServosAtivos();
   expressaoAtual = FACE_SONO;
   atualizarDisplay();
   moverSuave(servoGarra, posGarra, 10);
   moverSuave(servoCotovelo, posCotovelo, 45);
   moverSuave(servoOmbro, posOmbro, 45);
   moverSuave(servoBase, posBase, 90);
+  delay(200);
+  desenergizarServos(); // Corta o PWM para eliminar ruído (jitter) e resfriar os motores
 }
 
 void rotinaAcenar() {
+  garantirServosAtivos();
   expressaoAtual = FACE_FELIZ;
   atualizarDisplay();
   for (int j = 0; j < 3; j++) {
@@ -178,6 +197,7 @@ void rotinaAcenar() {
 }
 
 void rotinaApontar() {
+  garantirServosAtivos();
   expressaoAtual = FACE_FOCADO;
   atualizarDisplay();
   moverSuave(servoBase, posBase, 90);

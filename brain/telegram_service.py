@@ -217,6 +217,15 @@ class TelegramBotService:
         except Exception as e_rot:
             print(f"⚠️ [TELEGRAM ROUTER]: {e_rot}")
 
+        # Envio de acordo com o provedor de nuvem configurado
+        from ai_router import ai_router
+        prov = ai_router.cloud_provider
+
+        if prov == "openai":
+            return ai_router.executar_nuvem_openai(texto_comando, system_instruction="Você é o J.A.R.V.I.S.")
+        elif prov == "claude":
+            return ai_router.executar_nuvem_claude(texto_comando, system_instruction="Você é o J.A.R.V.I.S.")
+
         for tentativa in range(3):
             try:
                 with self.chat_lock:

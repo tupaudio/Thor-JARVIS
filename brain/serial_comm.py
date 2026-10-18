@@ -98,14 +98,24 @@ class SerialCommController:
                 return True
 
             except Exception as e:
-                if not self._tentou_conectar:
-                    print(f"⚠️ [SERIAL] Falha ao conectar ao Arduino: {e}. Alternando para simulador.")
-                    self._tentou_conectar = True
+                print(f"⚠️ [SERIAL] Falha ao conectar ao Arduino: {e}. Alternando para simulador.")
                 self.conectado = False
                 return False
 
     def is_conectado(self) -> bool:
         return self.conectado and self._serial is not None and self._serial.is_open
+
+    def tentar_reconectar_se_necessario(self) -> bool:
+        """Tenta reconectar ao Arduino físico a cada 10s se estiver desconectado."""
+        if self.is_conectado():
+            return True
+        agora = time.time()
+        if not hasattr(self, "_ultimo_retry_serial"):
+            self._ultimo_retry_serial = 0
+        if agora - self._ultimo_retry_serial > 10.0:
+            self._ultimo_retry_serial = agora
+            return self.conectar()
+        return False
 
     def enviar_comando(self, comando: str, aguardar_ack: bool = True, timeout: float = 3.0) -> str:
         """Envia uma string de comando para o Arduino via Wi-Fi (ESP32-S3) ou Serial USB."""
@@ -121,9 +131,9 @@ class SerialCommController:
             except Exception:
                 pass
 
-        # 2. Fallback para conexão Serial USB direta com o Arduino
+        # 2. Fallback para conexão Serial USB direta com o Arduino (com tentativa de reconexão)
         if not self.is_conectado():
-            if not self.conectar():
+            if not self.tentar_reconectar_se_necessario():
                 return ""
 
         with self._lock:
@@ -142,7 +152,13 @@ class SerialCommController:
                         time.sleep(0.05)
                 return "OK"
             except Exception as e:
-                print(f"⚠️ [SERIAL] Erro ao transmitir comando '{comando}': {e}")
+                print(f"⚠️ [SERIAL] Conexão USB com o Arduino perdida ({e}). Alternando para simulador.")
+                try:
+                    if self._serial:
+                        self._serial.close()
+                except Exception:
+                    pass
+                self._serial = None
                 self.conectado = False
                 return ""
 

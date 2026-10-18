@@ -75,7 +75,16 @@ class VoiceEngine:
                 except Exception:
                     pass
 
-            audio_bytes = asyncio.run(self._generate_audio_bytes(text, voice=voz, rate=rate, pitch=pitch))
+            # Execução assíncrona segura contra conflito de event loops
+            def _rodar_async():
+                novo_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(novo_loop)
+                try:
+                    return novo_loop.run_until_complete(self._generate_audio_bytes(text, voice=voz, rate=rate, pitch=pitch))
+                finally:
+                    novo_loop.close()
+
+            audio_bytes = _rodar_async()
             if not audio_bytes:
                 return
 
@@ -97,22 +106,48 @@ class VoiceEngine:
         except Exception:
             pass
 
-    def listen(self, duration: int = 15) -> str:
+    def listen(self, duration: int = 15, timeout_silencio: float = 2.5) -> str:
         """
         Captura áudio do microfone usando SoundDevice e converte em texto.
+        Possui detecção de fala e silêncio (VAD) para finalizar rapidamente
+        assim que o usuário terminar de falar, sem esperar os 15s completos se houver silêncio.
         """
         try:
-            print(f"\n🎧 [OUVINDO...] Fale agora senhor (gravando {duration} segundos)...")
-            recording = sd.rec(int(duration * self.sample_rate), samplerate=self.sample_rate, channels=1, dtype='int16')
-            sd.wait()
+            print(f"\n🎧 [OUVINDO...] Fale agora senhor (janela máxima de {duration}s)...")
+            chunk_duration = 0.25
+            chunk_samples = int(chunk_duration * self.sample_rate)
+            total_chunks = int(duration / chunk_duration)
+            
+            frames = []
+            fala_iniciada = False
+            tempo_silencio = 0.0
+            limiar_energia = 350 # Limiar RMS para detecção de voz
+
+            with sd.InputStream(samplerate=self.sample_rate, channels=1, dtype='int16') as stream:
+                for _ in range(total_chunks):
+                    data, _ = stream.read(chunk_samples)
+                    frames.append(data.copy())
+                    
+                    # Cálculo de energia sonora RMS do chunk
+                    rms = np.sqrt(np.mean(data.astype(np.float32)**2))
+                    if rms > limiar_energia:
+                        fala_iniciada = True
+                        tempo_silencio = 0.0
+                    elif fala_iniciada:
+                        tempo_silencio += chunk_duration
+                        # Se já começou a falar e fez silêncio por tempo suficiente, encerra antecipadamente
+                        if tempo_silencio >= timeout_silencio:
+                            break
+
             print("⏳ [PROCESSANDO VOZ] Interpretando sua fala...")
+            audio_array = np.concatenate(frames, axis=0)
             
             wav_io = io.BytesIO()
             with wave.open(wav_io, 'wb') as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
                 wf.setframerate(self.sample_rate)
-                wf.writeframes(recording.tobytes())
+                wf.writeframes(audio_array.tobytes())
             wav_io.seek(0)
             
             with sr.AudioFile(wav_io) as source:

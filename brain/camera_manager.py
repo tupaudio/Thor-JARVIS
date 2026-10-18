@@ -86,11 +86,15 @@ class CameraManager:
 
             # Disparo avulso sob demanda
             try:
-                cap = cv2.VideoCapture(self.camera_index)
+                backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
+                cap = cv2.VideoCapture(self.camera_index, backend)
+                if not cap.isOpened():
+                    cap = cv2.VideoCapture(self.camera_index)
                 if not cap.isOpened():
                     return False, None
 
-                for _ in range(5):
+                # 2 descartes rápidos bastam com DSHOW
+                for _ in range(2):
                     cap.read()
 
                 ret, frame = cap.read()

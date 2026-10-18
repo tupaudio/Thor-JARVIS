@@ -55,6 +55,9 @@ class AIRouter:
         self.gemini_key = os.getenv("GEMINI_API_KEY", "")
         self.openai_key = os.getenv("OPENAI_API_KEY", "")
         self.anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+        
+        # Histórico de conversação para provedores REST
+        self.historico = []
 
     def definir_modo(self, modo: str) -> str:
         """Altera dinamicamente o modo de operação ('hybrid', 'cloud_only', 'local_only')."""
@@ -151,7 +154,6 @@ class AIRouter:
     def executar_local(self, prompt: str, system_prompt: str = "") -> dict:
         """
         Executa inferência rápida no modelo local via API REST nativa do Ollama.
-        Retorna dicionário com {'sucesso': bool, 'resposta': str, 'chamada_funcao': dict|None}.
         """
         if not self.testar_ollama_online():
             return {
@@ -198,6 +200,76 @@ class AIRouter:
                 return {"sucesso": False, "erro": f"Ollama HTTP {resp.status_code}: {resp.text}"}
         except Exception as e:
             return {"sucesso": False, "erro": str(e)}
+
+    def executar_nuvem_openai(self, prompt: str, system_instruction: str = "") -> str:
+        """Chama a API da OpenAI (ChatGPT) com o modelo gpt-4o-mini."""
+        key = os.getenv("OPENAI_API_KEY", self.openai_key).strip()
+        if not key or "sua_chave" in key:
+            return "Chave OPENAI_API_KEY não configurada no arquivo .env, senhor."
+
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json"
+        }
+        messages = []
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
+        
+        # Mantém histórico recente
+        for h in self.historico[-6:]:
+            messages.append(h)
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": messages,
+            "temperature": 0.7
+        }
+        try:
+            resp = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=25)
+            if resp.status_code == 200:
+                dados = resp.json()
+                texto = dados["choices"][0]["message"]["content"].strip()
+                self.historico.append({"role": "user", "content": prompt})
+                self.historico.append({"role": "assistant", "content": texto})
+                return texto
+            return f"Erro OpenAI HTTP {resp.status_code}: {resp.text}"
+        except Exception as e:
+            return f"Erro ao comunicar com a OpenAI: {e}"
+
+    def executar_nuvem_claude(self, prompt: str, system_instruction: str = "") -> str:
+        """Chama a API da Anthropic (Claude) com o modelo claude-3-5-haiku-latest."""
+        key = os.getenv("ANTHROPIC_API_KEY", self.anthropic_key).strip()
+        if not key or "sua_chave" in key:
+            return "Chave ANTHROPIC_API_KEY não configurada no arquivo .env, senhor."
+
+        headers = {
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+        messages = []
+        for h in self.historico[-6:]:
+            messages.append(h)
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": "claude-3-5-haiku-latest",
+            "max_tokens": 1024,
+            "system": system_instruction if system_instruction else "Você é o J.A.R.V.I.S.",
+            "messages": messages
+        }
+        try:
+            resp = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload, timeout=25)
+            if resp.status_code == 200:
+                dados = resp.json()
+                texto = dados["content"][0]["text"].strip()
+                self.historico.append({"role": "user", "content": prompt})
+                self.historico.append({"role": "assistant", "content": texto})
+                return texto
+            return f"Erro Anthropic HTTP {resp.status_code}: {resp.text}"
+        except Exception as e:
+            return f"Erro ao comunicar com a Anthropic Claude: {e}"
 
     def obter_status(self) -> dict:
         """Retorna o estado atual dos motores para diagnóstico e exibição."""
