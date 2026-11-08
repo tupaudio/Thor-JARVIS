@@ -81,3 +81,6 @@ Jarvis_3d_references/
 *.pem
 brain.bkp/
 *.bkp
+
+.continue/
+*.continue*

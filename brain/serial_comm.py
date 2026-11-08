@@ -40,6 +40,11 @@ class SerialCommController:
 
     def conectar(self) -> bool:
         """Tenta abrir a comunicação serial com a placa Arduino."""
+        # Se Arduino estiver desativado ou configurado como none, usa simulador para não bloquear a impressora 3D
+        if os.getenv("ARDUINO_ENABLED", "0") != "1" or self.porta_configurada.lower() in ("none", "", "disabled"):
+            self.conectado = False
+            return False
+
         with self._lock:
             if self.conectado and self._serial is not None and self._serial.is_open:
                 return True
@@ -50,12 +55,12 @@ class SerialCommController:
 
                 todas_portas = list(serial.tools.list_ports.comports())
                 
-                # Ignora portas Bluetooth/virtuais (rfcomm)
+                # Ignora portas Bluetooth/virtuais (rfcomm) e portas reservadas para 3D printer
                 portas_usb_reais = []
                 for p in todas_portas:
                     desc = (p.description or "").lower()
                     hwid = (p.hwid or "").lower()
-                    if "bluetooth" in desc or "bthmodem" in hwid:
+                    if "bluetooth" in desc or "bthmodem" in hwid or p.device == "/dev/ttyUSB0":
                         continue
                     portas_usb_reais.append(p)
 
@@ -76,10 +81,10 @@ class SerialCommController:
                             porta_alvo = p.device
                             break
 
-                # 3. Linux: nós de dispositivo do Arduino Uno (ttyACM*) e conversores (ttyUSB*)
+                # 3. Linux: nós de dispositivo do Arduino Uno (ttyACM*)
                 if not porta_alvo:
                     import glob
-                    candidatas = sorted(glob.glob("/dev/ttyACM*")) + sorted(glob.glob("/dev/ttyUSB*"))
+                    candidatas = sorted(glob.glob("/dev/ttyACM*"))
                     if candidatas:
                         porta_alvo = candidatas[0]
 
