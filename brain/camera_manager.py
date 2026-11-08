@@ -1,60 +1,100 @@
 """
-Gerenciador Central de Câmera e Arbitragem de Dispositivo para o J.A.R.V.I.S.
-Evita contenção e conflito de acesso à webcam no Windows entre o Modo Sentinela
-(vigilância contínua) e capturas manuais de fotos ou visão computacional.
+camera_manager.py — Arbitragem de câmera (iPhone no dock + webcam V4L2 opcional) para o J.A.R.V.I.S.
+
+Mudanças:
+  * Sem referências a Windows/DirectShow; webcam local usa V4L2 (/dev/video*) quando existir.
+  * Frames do iPhone chegam várias vezes por segundo: agora só o JPEG bruto é guardado (validado e
+    com tamanho limitado). A decodificação (cv2.imdecode, ~6 MB por frame 1080p) é feita sob demanda
+    por quem precisa do array (sentinela/visão), não na thread HTTP a cada POST.
+  * Condition + contador de frames: o MJPEG espera um frame NOVO em vez de fazer polling a cada 200 ms.
 """
 
 import os
-import sys
 import time
 import threading
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 class CameraManager:
-    """Controlador unificado de câmera frontal com thread-safety e multiplexação de fluxo."""
+    MAX_JPEG = 3 * 1024 * 1024
+
     def __init__(self, camera_index: int = 0):
         self.camera_index = camera_index
         self._lock = threading.Lock()
+        self._novo_frame = threading.Condition(self._lock)
         self._cap = None
         self._is_streaming = False
         self._base_dir = os.path.dirname(os.path.abspath(__file__))
         self.default_photo_path = os.path.join(self._base_dir, "webcam_view.jpg")
+        self._remote_jpeg_bytes = None
+        self._remote_frame_time = 0.0
+        self._frame_seq = 0
 
+    # ------------------------------------------------------------ iPhone remoto
+    def atualizar_frame_remoto(self, jpeg_bytes: bytes) -> bool:
+        """Guarda o JPEG mais recente (sem decodificar). Retorna False se não parecer um JPEG válido."""
+        if not jpeg_bytes or len(jpeg_bytes) > self.MAX_JPEG or jpeg_bytes[:2] != b"\xff\xd8":
+            return False
+        with self._novo_frame:
+            self._remote_jpeg_bytes = jpeg_bytes
+            self._remote_frame_time = time.time()
+            self._frame_seq += 1
+            self._novo_frame.notify_all()
+        return True
+
+    def tem_camera_iphone_ativa(self, max_age_sec: float = 10.0) -> bool:
+        with self._lock:
+            return self._remote_jpeg_bytes is not None and (time.time() - self._remote_frame_time) <= max_age_sec
+
+    def obter_ultimo_jpeg_remoto(self, max_age_sec: float = 30.0):
+        with self._lock:
+            if self._remote_jpeg_bytes and (time.time() - self._remote_frame_time) <= max_age_sec:
+                return self._remote_jpeg_bytes
+        return None
+
+    def aguardar_frame_novo(self, ultimo_seq: int, timeout: float = 5.0):
+        """Bloqueia até existir um frame mais novo que ultimo_seq. Retorna (seq, jpeg) ou (ultimo_seq, None)."""
+        with self._novo_frame:
+            self._novo_frame.wait_for(lambda: self._frame_seq != ultimo_seq, timeout=timeout)
+            if self._frame_seq != ultimo_seq:
+                return self._frame_seq, self._remote_jpeg_bytes
+        return ultimo_seq, None
+
+    def _decodificar_remoto(self):
+        import cv2
+        import numpy as np
+        jpeg = self.obter_ultimo_jpeg_remoto(max_age_sec=10.0)
+        if not jpeg:
+            return None
+        return cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+
+    # ------------------------------------------------------------- webcam local
     def is_streaming(self) -> bool:
-        """Indica se a câmera está atualmente sob captura contínua (ex: Modo Sentinela)."""
         return self._is_streaming
 
     def iniciar_stream(self) -> bool:
-        """
-        Abre o dispositivo de vídeo para captura contínua mantendo o handle aberto.
-        Usado pelo Modo Sentinela.
-        """
+        """Prepara a captura contínua (iPhone se estiver enviando; senão webcam V4L2 local)."""
+        if self.tem_camera_iphone_ativa():
+            self._is_streaming = True
+            return True
         import cv2
         with self._lock:
             if self._is_streaming and self._cap is not None and self._cap.isOpened():
                 return True
-
             try:
-                self._cap = cv2.VideoCapture(self.camera_index)
+                self._cap = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2)
                 if not self._cap.isOpened():
+                    self._cap.release()
                     self._cap = None
                     self._is_streaming = False
                     return False
-
-                # Minimiza buffer no Windows para frames sempre recentes
                 self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-                # Descarte inicial para calibração de luminosidade
                 for _ in range(5):
                     self._cap.read()
                     time.sleep(0.05)
-
                 self._is_streaming = True
                 return True
             except Exception as e:
-                print(f"⚠️ [CAMERA_MANAGER] Erro ao iniciar stream contínuo: {e}")
+                print(f"⚠️ [CAMERA_MANAGER] Erro ao iniciar stream: {e}")
                 if self._cap:
                     self._cap.release()
                     self._cap = None
@@ -62,7 +102,6 @@ class CameraManager:
                 return False
 
     def parar_stream(self):
-        """Libera o hardware da câmera após o encerramento do monitoramento contínuo."""
         with self._lock:
             self._is_streaming = False
             if self._cap is not None:
@@ -73,52 +112,46 @@ class CameraManager:
                 self._cap = None
 
     def obter_frame(self):
-        """
-        Retorna uma tupla (sucesso: bool, frame: np.ndarray).
-        Se estiver em streaming, lê do handle aberto.
-        Se não estiver, abre temporariamente com calibração rápida e libera o hardware.
-        """
+        """(sucesso, frame BGR). Prioriza o iPhone; senão webcam V4L2 local (se houver)."""
+        frame = self._decodificar_remoto()
+        if frame is not None:
+            return True, frame
         import cv2
         with self._lock:
             if self._is_streaming and self._cap is not None and self._cap.isOpened():
-                ret, frame = self._cap.read()
-                return ret, frame
-
-            # Disparo avulso sob demanda
+                return self._cap.read()
+            if not os.path.exists(f"/dev/video{self.camera_index}"):
+                return False, None  # servidor headless sem webcam: falha imediata, sem esperar o OpenCV
             try:
-                backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
-                cap = cv2.VideoCapture(self.camera_index, backend)
-                if not cap.isOpened():
-                    cap = cv2.VideoCapture(self.camera_index)
+                cap = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2)
                 if not cap.isOpened():
                     return False, None
-
-                # 2 descartes rápidos bastam com DSHOW
                 for _ in range(2):
                     cap.read()
-
                 ret, frame = cap.read()
                 cap.release()
                 return ret, frame
             except Exception as e:
-                print(f"⚠️ [CAMERA_MANAGER] Erro ao obter frame avulso: {e}")
+                print(f"⚠️ [CAMERA_MANAGER] Erro ao capturar frame avulso: {e}")
                 return False, None
 
     def capturar_foto(self, caminho_saida: str = None) -> str:
-        """
-        Captura uma foto em alta definição e salva no disco.
-        Retorna o caminho absoluto do arquivo ou string vazia em caso de falha.
-        """
-        import cv2
+        """Salva uma foto (o JPEG do iPhone é gravado direto, sem recodificar). Retorna o caminho ou ''."""
         destino = caminho_saida or self.default_photo_path
-        ret, frame = self.obter_frame()
-        if ret and frame is not None:
-            try:
+        jpeg = self.obter_ultimo_jpeg_remoto(max_age_sec=10.0)
+        try:
+            if jpeg:
+                with open(destino, "wb") as f:
+                    f.write(jpeg)
+                return destino
+            import cv2
+            ok, frame = self.obter_frame()
+            if ok and frame is not None:
                 cv2.imwrite(destino, frame)
                 return destino
-            except Exception as e:
-                print(f"⚠️ [CAMERA_MANAGER] Erro ao salvar imagem em '{destino}': {e}")
-                return ""
+        except Exception as e:
+            print(f"⚠️ [CAMERA_MANAGER] Erro ao salvar imagem: {e}")
         return ""
+
 
 camera_manager = CameraManager()

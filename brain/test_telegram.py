@@ -7,8 +7,6 @@ import sys
 from dotenv import load_dotenv
 from telegram_service import telegram_service
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 load_dotenv()
 

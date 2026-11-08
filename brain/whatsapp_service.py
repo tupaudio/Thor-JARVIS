@@ -1,6 +1,6 @@
 """
 Módulo de Envio de Mensagens do WhatsApp para o J.A.R.V.I.S.
-Integrado com o Aplicativo WhatsApp Desktop do Windows e WhatsApp Web,
+Entrega links wa.me pelo Telegram (servidor headless),
 com suporte a agenda de contatos inteligente e envio automatizado.
 """
 
@@ -14,8 +14,6 @@ import webbrowser
 import subprocess
 from dotenv import load_dotenv
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(env_path)
@@ -107,7 +105,7 @@ class WhatsAppService:
 
     def enviar_mensagem(self, destinatario: str, mensagem: str) -> str:
         """
-        Dispara uma mensagem real no WhatsApp (App do Windows ou Web).
+        Prepara o envio no WhatsApp via link wa.me entregue no Telegram (servidor headless).
         
         Args:
             destinatario: Nome do contato (ex: 'Carlos', 'Mãe') ou número com DDD.
@@ -123,42 +121,16 @@ class WhatsAppService:
 
         print(f"\n📱 [WHATSAPP REAL] Disparando para {nome_exibicao} (+{numero_formatado}): \"{mensagem}\"")
 
-        texto_codificado = urllib.parse.quote(mensagem)
-        
-        # 1. Tentativa via Aplicativo Oficial do WhatsApp Desktop (Windows)
+        # Servidor headless: não há WhatsApp Desktop nem navegador. Gera o link wa.me e o entrega
+        # no Telegram do usuário; basta tocar nele no iPhone para abrir a conversa com o texto pronto.
+        link = f"https://wa.me/{numero_formatado}?text={urllib.parse.quote(mensagem)}"
         try:
-            import pyautogui
-            
-            # Abre diretamente a conversa com o texto no WhatsApp Desktop via Windows Shell
-            uri = f"whatsapp://send?phone={numero_formatado}&text={texto_codificado}"
-            os.startfile(uri)
-            
-            # Aguarda a janela do WhatsApp carregar e focar
-            time.sleep(2.5)
-            
-            # Pressiona Enter para enviar
-            pyautogui.press("enter")
-            
-            return f"Mensagem enviada com sucesso para {nome_exibicao} (+{numero_formatado}) via WhatsApp Desktop, senhor."
-            
-        except Exception as e:
-            print(f"⚠️ [WHATSAPP] Falha no aplicativo desktop ({e}), tentando WhatsApp Web...")
-
-        # 2. Fallback via WhatsApp Web
-        try:
-            import pywhatkit
-            pywhatkit.sendwhatmsg_instantly(
-                phone_no=f"+{numero_formatado}",
-                message=mensagem,
-                wait_time=12,
-                tab_close=True,
-                close_time=3
-            )
-            return f"Mensagem enviada com sucesso para {nome_exibicao} via WhatsApp Web, senhor."
-        except Exception as e_web:
-            # Fallback seguro: abre a conversa no navegador
-            url = f"https://web.whatsapp.com/send?phone={numero_formatado}&text={texto_codificado}"
-            webbrowser.open(url)
-            return f"Abri a conversa de {nome_exibicao} com o texto pronto no WhatsApp para o senhor confirmar."
+            from telegram_service import telegram_service
+            r = telegram_service.enviar_mensagem(f"💬 Toque para enviar a {nome_exibicao}:\n{link}")
+            if r.startswith("Mensagem enviada"):
+                return f"Deixei o link da conversa com {nome_exibicao} no seu Telegram, senhor. Toque nele para enviar a mensagem."
+        except Exception:
+            pass
+        return f"Não consegui entregar o link no Telegram, senhor. A conversa com {nome_exibicao} está em {link}"
 
 whatsapp_service = WhatsAppService()

@@ -12,8 +12,6 @@ import time
 import requests
 from dotenv import load_dotenv
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(env_path)
@@ -60,7 +58,11 @@ class IoTService:
 
     def _identificar_alvos(self, termo: str) -> list:
         termo_limpo = termo.lower().strip()
-        
+
+        # Correspondência exata pela chave do dispositivo (ex: botões do iPhone Dock)
+        if termo_limpo in self.dispositivos:
+            return [termo_limpo]
+
         # Casos gerais de escopo total
         if any(w in termo_limpo for w in ["tudo", "todas as luzes", "todos os dispositivos", "tudo que estiver ligado"]):
             return list(self.dispositivos.keys())
@@ -128,6 +130,21 @@ class IoTService:
                         d.turn_off()
             except Exception as e:
                 print(f"⚠️ [IOT TUYA] Falha na comunicação física com {chave}: {e}")
+
+        # Tomada da impressora 3D via OctoPrint (plugin PSU Control)
+        elif proto == "octoprint":
+            try:
+                from octoprint_service import octoprint_service
+                if comando == "ligar":
+                    octoprint_service.ligar_tomada()
+                elif comando == "desligar":
+                    ok, msg = octoprint_service.desligar_tomada()
+                    if not ok:
+                        print(f"🛑 [IOT OCTOPRINT] {msg}")
+                        disp["status"] = "ligado"
+                        return False
+            except Exception as e:
+                print(f"⚠️ [IOT OCTOPRINT] Falha em {chave}: {e}")
 
         # Tasmota / ESP32 / Sonoff HTTP
         elif proto == "tasmota" and ip:

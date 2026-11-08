@@ -1,50 +1,35 @@
-# SDK Oficial da Google Gemini API
-google-genai>=2.22.0
+# J.A.R.V.I.S. — Debian 13 / Python 3.13 (headless). Sem dependências de Windows.
+# Pacotes de sistema recomendados:  sudo apt install -y ffmpeg libgl1 libglib2.0-0 tailscale
 
-# Comunicação Serial com o Arduino
+google-genai>=2.22.0            # Gemini (cliente único em gemini_session.py)
+python-dotenv>=1.2.3
+requests>=2.34.2
+psutil>=7.2.2                   # telemetria (CPU/RAM/disco/sensores)
+
+# Voz: Edge-TTS gera MP3 que é entregue ao iPhone (não toca no servidor)
+edge-tts>=7.3.1
+SpeechRecognition>=3.17.0       # transcrição do WAV enviado pelo iPhone (recognize_google)
+
+# HTTPS do HUD (certificado autoassinado, se não usar `tailscale cert`)
+cryptography>=43.0.0
+
+# Hardware
 pyserial>=3.5
 
-# Voz e Áudio (Text-to-Speech com vozes neurais realistas e playback in-memory)
-edge-tts>=7.2.8
-pygame-ce>=2.5.0
-sounddevice>=0.5.6
+# Visão computacional (headless, sem GUI)
+opencv-python-headless>=5.0.0.93
+numpy>=2.0
+Pillow>=12.3.0
 
-# Reconhecimento de Fala
-SpeechRecognition>=3.17.0
-
-# Integrações Google (Calendar e Gmail)
+# Integrações
 google-api-python-client>=2.200.0
 google-auth-oauthlib>=1.4.1
 google-auth-httplib2>=0.4.2
-
-# Variáveis de ambiente e utilitários de rede
-python-dotenv>=1.2.3
-requests>=2.34.2
-
-# Waze e Rotas
 WazeRouteCalculator>=0.16
 geopy>=2.5.0
-
-# Notion API
 notion-client>=3.1.0
-
-# Spotify Web API
 spotipy>=2.26.0
-
-# Automação do Windows e Áudio
-psutil>=7.2.2
-pycaw>=20251023
-comtypes>=1.4.16
-Pillow>=12.3.0
-pywhatkit>=5.4
-
-# Visão Computacional e Câmera (Headless para evitar conflitos no Windows)
-opencv-python-headless>=5.0.0.93
-
-# Casa Inteligente / IoT
 tinytuya>=1.20.0
-
-# Busca Web em Tempo Real e Transcrições do YouTube
 ddgs>=9.16.0
-duckduckgo-search>=8.1.1
 youtube-transcript-api>=1.2.4
+python-dateutil>=2.9.0

@@ -13,8 +13,6 @@ import time
 import threading
 import numpy as np
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 # Definições completas das 7 Personas
 PERSONAS = {

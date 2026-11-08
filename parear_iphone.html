@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>J.A.R.V.I.S. - Pareamento iPhone 11 Dock</title>
+  <style>
+    body {
+      background-color: #0b0f19;
+      color: #00d2ff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    .card {
+      background: rgba(13, 24, 44, 0.85);
+      border: 1px solid rgba(0, 210, 255, 0.4);
+      box-shadow: 0 0 30px rgba(0, 210, 255, 0.2);
+      border-radius: 16px;
+      padding: 30px;
+      max-width: 480px;
+      width: 100%;
+    }
+    h1 {
+      font-size: 24px;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
+      color: #fff;
+      text-shadow: 0 0 10px #00d2ff;
+    }
+    p {
+      color: #8da2c0;
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+    .qr-box {
+      background: #ffffff;
+      padding: 16px;
+      border-radius: 12px;
+      display: inline-block;
+      box-shadow: 0 0 20px rgba(0, 210, 255, 0.5);
+      margin-bottom: 20px;
+    }
+    .qr-box img {
+      display: block;
+      width: 250px;
+      height: 250px;
+    }
+    .steps {
+      text-align: left;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 16px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      color: #c0d4ed;
+      border-left: 3px solid #00d2ff;
+    }
+    .steps ol {
+      margin: 0;
+      padding-left: 20px;
+    }
+    .steps li {
+      margin-bottom: 8px;
+    }
+    .steps li:last-child {
+      margin-bottom: 0;
+    }
+    .url-text {
+      font-family: monospace;
+      font-size: 11px;
+      background: #060b13;
+      padding: 10px;
+      border-radius: 6px;
+      word-break: break-all;
+      color: #00ffcc;
+      margin-top: 15px;
+      border: 1px dashed rgba(0, 210, 255, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>J.A.R.V.I.S. DOCK</h1>
+    <p>Aponte a câmera do seu iPhone 11 para conectar instantaneamente ao HUD de bancada.</p>
+    
+    <div class="qr-box">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https%3A%2F%2F192.168.15.199%3A8443%2F%3Ftoken%3DyCd0FFwtML1ab6TfXSu0WWweHfhK6HEu" alt="QR Code J.A.R.V.I.S.">
+    </div>
+
+    <div class="steps">
+      <ol>
+        <li>Abra o aplicativo nativo <strong>Câmera</strong> do iPhone.</li>
+        <li>Aponte para o <strong>QR Code</strong> acima.</li>
+        <li>Toque na notificação amarela que aparecer: <strong>Abrir no Safari</strong>.</li>
+        <li>No aviso de certificado local, toque em <strong>Avançado</strong> &gt; <strong>Continuar para o site (inseguro)</strong>.</li>
+      </ol>
+    </div>
+
+    <div class="url-text">
+      https://192.168.15.199:8443/?token=yCd0FFwtML1ab6TfXSu0WWweHfhK6HEu
+    </div>
+  </div>
+</body>
+</html>

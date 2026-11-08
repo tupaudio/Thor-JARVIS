@@ -12,10 +12,9 @@ import asyncio
 import threading
 import random
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(env_path)
@@ -27,11 +26,10 @@ class TelegramBotService:
         self.api_url = os.getenv("TELEGRAM_API_URL", "https://api.telegram.org").rstrip("/")
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "JARVIS-Assistant/1.0"})
+        self._poll_session = requests.Session()   # sessão exclusiva do long polling (não compartilhada com os envios)
+        self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="tg-msg")
         self.polling_active = False
         self.last_update_id = 0
-        self.gemini_chat = None
-        self.chat_lock = threading.Lock()
-        self.temp_voice_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "jarvis_telegram_voice.mp3"))
 
     @property
     def base_url(self) -> str:
@@ -51,30 +49,11 @@ class TelegramBotService:
             return {"ok": False, "error": str(e)}
 
     def salvar_chat_id(self, chat_id: str):
-        """Salva o Chat ID do usuário automaticamente no arquivo .env."""
+        """Registra o Chat ID do dono no .env (escrita atômica)."""
+        from env_utils import atualizar_env
         self.chat_id = str(chat_id)
-        os.environ["TELEGRAM_CHAT_ID"] = self.chat_id
-        env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".env"))
-        try:
-            if os.path.exists(env_path):
-                with open(env_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                if "TELEGRAM_CHAT_ID=" in content:
-                    lines = content.splitlines()
-                    new_lines = []
-                    for line in lines:
-                        if line.startswith("TELEGRAM_CHAT_ID="):
-                            new_lines.append(f"TELEGRAM_CHAT_ID={self.chat_id}")
-                        else:
-                            new_lines.append(line)
-                    with open(env_path, "w", encoding="utf-8") as f:
-                        f.write("\n".join(new_lines) + "\n")
-                else:
-                    with open(env_path, "a", encoding="utf-8") as f:
-                        f.write(f"\nTELEGRAM_CHAT_ID={self.chat_id}\n")
-                print(f"📱 [TELEGRAM] Chat ID {self.chat_id} registrado com sucesso no .env!")
-        except Exception as e:
-            print(f"⚠️ [TELEGRAM] Erro ao salvar CHAT_ID no .env: {e}")
+        if atualizar_env("TELEGRAM_CHAT_ID", self.chat_id):
+            print(f"📱 [TELEGRAM] Chat ID {self.chat_id} registrado no .env.")
 
     def enviar_mensagem(self, texto: str, chat_id: str = None) -> str:
         """
@@ -86,6 +65,12 @@ class TelegramBotService:
         target_chat = chat_id or self.chat_id
         if not target_chat:
             return "Destinatário do Telegram não definido. Envie /start para o seu bot @Dafnhe_JARVIS_bot primeiro."
+
+        if len(texto) > 4000:   # limite do Telegram: 4096 caracteres por mensagem
+            retorno = ""
+            for i in range(0, len(texto), 4000):
+                retorno = self.enviar_mensagem(texto[i:i + 4000], chat_id=chat_id)
+            return retorno
 
         url = f"{self.base_url}/sendMessage"
         payload = {
@@ -161,92 +146,43 @@ class TelegramBotService:
     def sintetizar_audio_resposta(self, texto: str) -> str:
         """Gera áudio com Edge-TTS para envio pelo Telegram."""
         import edge_tts
+        import tempfile
+        from voice_engine import limpar_para_fala
         voice_name = os.getenv("JARVIS_VOICE", "pt-BR-AntonioNeural")
-        
+        falavel = limpar_para_fala(texto)[:1500]
+        if not falavel:
+            return ""
+        fd, caminho = tempfile.mkstemp(prefix="jarvis_tg_", suffix=".mp3")   # arquivo próprio: sem corrida entre mensagens
+        os.close(fd)
+
         async def _gerar():
-            com = edge_tts.Communicate(texto, voice_name)
-            await com.save(self.temp_voice_file)
-        
-        def _rodar_async():
-            novo_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(novo_loop)
-            try:
-                novo_loop.run_until_complete(_gerar())
-                return self.temp_voice_file
-            except Exception as e:
-                print(f"⚠️ [TELEGRAM] Falha ao sintetizar áudio: {e}")
-                return ""
-            finally:
-                novo_loop.close()
+            await asyncio.wait_for(edge_tts.Communicate(falavel, voice_name).save(caminho), timeout=25)
 
-        return _rodar_async()
-
-    def conectar_gemini(self, gemini_chat, chat_lock=None):
-        """Associa a sessão do Gemini AI ao bot do Telegram com proteção de concorrência."""
-        self.gemini_chat = gemini_chat
-        if chat_lock is not None:
-            self.chat_lock = chat_lock
-
-    def processar_comando_remoto(self, texto_comando: str, chat_id: str) -> str:
-        """
-        Envia o comando do Telegram para o cérebro Gemini do JARVIS e devolve a resposta de forma thread-safe.
-        """
-        if not self.gemini_chat:
-            from google import genai
-            from google.genai import types
-            import main
-            
-            api_key = os.getenv("GEMINI_API_KEY")
-            client = genai.Client(api_key=api_key)
-            self.gemini_chat = client.chats.create(
-                model="gemini-3.5-flash-lite",
-                config=types.GenerateContentConfig(
-                    system_instruction=main.JARVIS_SYSTEM_INSTRUCTION,
-                    tools=main.JARVIS_TOOLS,
-                    temperature=0.7,
-                )
-            )
-
-        print(f"\n📱 [TELEGRAM MENSAGEM RECEBIDA]: \"{texto_comando}\"")
-
-        # ROTEAMENTO HÍBRIDO / LOCAL
+        novo_loop = asyncio.new_event_loop()
         try:
-            from ai_router import ai_router
-            import main
-            st_ai = ai_router.obter_status()
-            if st_ai["modo"] in ["hybrid", "local_only"]:
-                if st_ai["modo"] == "local_only" or ai_router.is_tarefa_local(texto_comando):
-                    resp_local = main.executar_comando_local_rapido(texto_comando)
-                    if resp_local:
-                        return f"⚡ [LOCAL]: {resp_local}"
-                    elif st_ai["modo"] == "local_only":
-                        return "Operando em modo 100% local. Este comando específico requer conexão com a nuvem, senhor."
-        except Exception as e_rot:
-            print(f"⚠️ [TELEGRAM ROUTER]: {e_rot}")
-
-        # Envio de acordo com o provedor de nuvem configurado
-        from ai_router import ai_router
-        prov = ai_router.cloud_provider
-
-        if prov == "openai":
-            return ai_router.executar_nuvem_openai(texto_comando, system_instruction="Você é o J.A.R.V.I.S.")
-        elif prov == "claude":
-            return ai_router.executar_nuvem_claude(texto_comando, system_instruction="Você é o J.A.R.V.I.S.")
-
-        for tentativa in range(3):
+            novo_loop.run_until_complete(_gerar())
+            return caminho
+        except Exception as e:
+            print(f"⚠️ [TELEGRAM] Falha ao sintetizar áudio: {e}")
             try:
-                with self.chat_lock:
-                    resposta = self.gemini_chat.send_message(texto_comando)
-                return resposta.text if resposta.text else "Comando executado com sucesso, senhor."
-            except Exception as e:
-                err_msg = str(e)
-                if any(t in err_msg for t in ["503", "UNAVAILABLE", "high demand", "429"]):
-                    espera = min(2 ** tentativa + random.uniform(0.1, 0.9), 8)
-                    time.sleep(espera)
-                else:
-                    return f"Desculpe, senhor. Tive um imprevisto ao processar sua solicitação: {e}"
-        
-        return "Desculpe senhor, os servidores da Google estão com alta demanda temporária. Por favor tente novamente em instantes."
+                os.unlink(caminho)
+            except OSError:
+                pass
+            return ""
+        finally:
+            novo_loop.close()
+
+    def conectar_gemini(self, gemini_chat=None, chat_lock=None):
+        """Compatibilidade: a sessão do Gemini agora é única e vive em gemini_session.py."""
+        return None
+
+    def processar_comando_remoto(self, texto_comando: str, chat_id: str = "") -> str:
+        """Encaminha o comando ao núcleo (roteamento local/nuvem + fila única do Gemini)."""
+        from brain_core import processar_comando
+        print(f"\n📱 [TELEGRAM] \"{texto_comando}\"")
+        resposta = processar_comando(texto_comando, origem="telegram")
+        print(f"🎙️ [J.A.R.V.I.S.]: \"{resposta}\"")
+        return resposta
 
     def tratar_atualizacao(self, update: dict):
         """Processa uma mensagem recebida do Telegram."""
@@ -274,8 +210,13 @@ class TelegramBotService:
             return
 
         # Primeiro contato ou comando /start
-        if texto == "/start" or not self.chat_id:
+        if not self.chat_id:
+            if os.getenv("TELEGRAM_ALLOW_AUTO_REGISTER", "0") != "1":
+                print(f"⚠️ [TELEGRAM] TELEGRAM_CHAT_ID não definido; ignorando ID {chat_id}. "
+                      f"Defina TELEGRAM_CHAT_ID no .env (ou TELEGRAM_ALLOW_AUTO_REGISTER=1 só para o primeiro pareamento).")
+                return
             self.salvar_chat_id(chat_id)
+        if texto == "/start":
             boas_vindas = (
                 f"🎩 *Sistemas J.A.R.V.I.S. conectados com sucesso, senhor!*\n\n"
                 f"Sua identidade foi registrada (`ID: {chat_id}`).\n"
@@ -309,9 +250,21 @@ class TelegramBotService:
         try:
             caminho_audio = self.sintetizar_audio_resposta(resposta_texto)
             if caminho_audio and os.path.exists(caminho_audio):
-                self.enviar_audio_voz(caminho_audio, chat_id=chat_id)
+                try:
+                    self.enviar_audio_voz(caminho_audio, chat_id=chat_id)
+                finally:
+                    try:
+                        os.unlink(caminho_audio)
+                    except OSError:
+                        pass
         except Exception as e:
             print(f"⚠️ [TELEGRAM] Não foi possível enviar áudio de resposta: {e}")
+
+    def _tratar_seguro(self, update: dict):
+        try:
+            self.tratar_atualizacao(update)
+        except Exception as e:
+            print(f"⚠️ [TELEGRAM] Erro ao tratar mensagem: {e}")
 
     def polling_loop(self):
         """Loop contínuo de escuta (Long Polling) para mensagens do Telegram."""
@@ -321,14 +274,15 @@ class TelegramBotService:
         while self.polling_active:
             try:
                 params = {"offset": self.last_update_id + 1, "timeout": 20}
-                resp = self.session.get(f"{self.base_url}/getUpdates", params=params, timeout=25)
+                resp = self._poll_session.get(f"{self.base_url}/getUpdates", params=params, timeout=(5, 30))
                 
                 if resp.status_code == 200:
                     dados = resp.json()
                     if dados.get("ok"):
                         for update in dados.get("result", []):
                             self.last_update_id = update.get("update_id", self.last_update_id)
-                            self.tratar_atualizacao(update)
+                            # Em pool: uma resposta lenta do Gemini não congela a leitura de novas mensagens
+                            self._pool.submit(self._tratar_seguro, update)
                 else:
                     time.sleep(3)
             except Exception:
@@ -340,9 +294,6 @@ class TelegramBotService:
             print("ℹ️  [TELEGRAM] TELEGRAM_BOT_TOKEN não configurado. Listener remoto desativado.")
             return
         
-        if gemini_chat:
-            self.conectar_gemini(gemini_chat, chat_lock=chat_lock)
-            
         thread = threading.Thread(target=self.polling_loop, daemon=True, name="JarvisTelegramBot")
         thread.start()
         print("✅ [TELEGRAM] Módulo conectado com sucesso e aguardando mensagens no Telegram.")

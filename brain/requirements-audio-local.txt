@@ -1,0 +1,4 @@
+# OPCIONAL: só para depuração com microfone/alto-falante do próprio servidor
+# (JARVIS_AUDIO_OUTPUT=local e ENTER-para-falar no terminal). Requer: sudo apt install libportaudio2
+pygame-ce>=2.5.0
+sounddevice>=0.5.6

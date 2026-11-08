@@ -1,38 +1,28 @@
 """
-Módulo de Integração com o Waze em Tempo Real para o JARVIS.
-Permite salvar endereços favoritos (Casa, Trabalho) e calcular rotas ao vivo.
+Módulo de Integração com Waze e Rotas OSRM para o J.A.R.V.I.S.
+Funciona no Linux Debian (headless).
+Calcula tempo estimado de viagem, distância em km e rotas em tempo real.
 """
 
 import os
 import sys
 import logging
+import requests
 from geopy.geocoders import Nominatim
-import WazeRouteCalculator
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
-
-# Silenciar logs internos do Waze
-logger = logging.getLogger('WazeRouteCalculator.WazeRouteCalculator')
-logger.setLevel(logging.WARNING)
 
 class WazeService:
     def __init__(self):
-        self.geolocator = Nominatim(user_agent="jarvis_assistant_route")
+        self.geolocator = Nominatim(user_agent="jarvis_assistant_navigation/2.0")
         self.env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "JARVIS-Navigation/2.0"})
 
     def salvar_endereco_favorito(self, tipo: str, endereco: str) -> str:
-        """
-        Salva o endereço de casa ou trabalho no arquivo .env para persistência.
-        
-        Args:
-            tipo: 'casa' ou 'trabalho'.
-            endereco: Endereço completo (Rua, Número, Bairro, Cidade - UF).
-        """
+        """Salva o endereço de casa ou trabalho no arquivo .env."""
         chave = "HOME_ADDRESS" if "casa" in tipo.lower() else "WORK_ADDRESS"
         os.environ[chave] = endereco
         
-        # Atualizar ou adicionar no arquivo .env
         linhas = []
         achou = False
         if os.path.exists(self.env_path):
@@ -53,12 +43,11 @@ class WazeService:
         with open(self.env_path, "w", encoding="utf-8") as f:
             f.writelines(novas_linhas)
 
-        print(f"📍 [LOCAL SALVO] {chave}: {endereco}")
         nome_tipo = "casa" if chave == "HOME_ADDRESS" else "trabalho"
         return f"Endereço de {nome_tipo} configurado com sucesso como: '{endereco}', senhor."
 
-    def _resolver_apelido(self, local: str) -> tuple[str, str]:
-        """Substitui termos como 'casa' ou 'trabalho' pelo endereço real."""
+    def _resolver_apelido(self, local: str) -> tuple:
+        """Substitui termos como 'casa' ou 'trabalho' pelo endereço configurado."""
         termo = local.lower().strip()
         if termo in ["casa", "minha casa", "minha residência", "home"]:
             casa = os.getenv("HOME_ADDRESS")
@@ -72,22 +61,21 @@ class WazeService:
             return trab, "Trabalho"
         return local, local
 
-    def _obter_coordenadas(self, endereco: str) -> str:
-        """Converte um endereço em coordenadas 'lat,lon'."""
+    def _obter_coordenadas(self, endereco: str) -> tuple:
+        """Converte endereço para tupla (lat, lon) usando Nominatim/OpenStreetMap."""
         try:
             busca = endereco if "brasil" in endereco.lower() else f"{endereco}, Brasil"
             local = self.geolocator.geocode(busca, timeout=8)
             if local:
-                return f"{local.latitude},{local.longitude}"
-        except Exception:
-            pass
-        return endereco
+                return (local.latitude, local.longitude)
+        except Exception as e:
+            print(f"⚠️ [GEO] Erro ao geocodificar '{endereco}': {e}")
+        return None
 
     def calcular_rota(self, destino: str, origem: str = "") -> str:
         """
-        Calcula o tempo de viagem e a distância em tempo real via Waze.
+        Calcula a rota em tempo real usando motor de roteamento rodoviário global (OSRM).
         """
-        # Se não especificou origem, assume a casa do usuário por padrão
         if not origem or origem.strip() == "":
             origem = "casa"
 
@@ -99,44 +87,44 @@ class WazeService:
         if not destino_real:
             return nome_destino
 
-        print(f"\n🚗 [WAZE] Calculando trajeto de '{origem_real}' até '{destino_real}' com trânsito ao vivo...")
-        
-        c_origem = self._obter_coordenadas(origem_real)
-        c_destino = self._obter_coordenadas(destino_real)
+        print(f"\n🚗 [ROTAS] Calculando trajeto de '{nome_origem}' até '{nome_destino}'...")
 
-        regioes = ['EU', 'US', 'IL']
-        resultado = None
+        coord_origem = self._obter_coordenadas(origem_real)
+        coord_destino = self._obter_coordenadas(destino_real)
 
-        for reg in regioes:
-            try:
-                calc = WazeRouteCalculator.WazeRouteCalculator(
-                    c_origem, c_destino, region=reg, log_lvl=logging.WARNING
-                )
-                tempo_min, distancia_km = calc.calc_route_info()
-                resultado = (tempo_min, distancia_km)
-                break
-            except Exception:
-                continue
+        if not coord_origem or not coord_destino:
+            return f"Não consegui localizar geograficamente os pontos '{nome_origem}' ou '{nome_destino}'. Por favor informe nomes mais específicos ou cidades."
 
-        if not resultado:
-            return f"Não foi possível calcular uma rota no Waze entre '{nome_origem}' e '{nome_destino}', senhor."
+        lat1, lon1 = coord_origem
+        lat2, lon2 = coord_destino
 
-        tempo_min, distancia_km = resultado
-        tempo_min = int(round(tempo_min))
-        distancia_km = round(distancia_km, 1)
+        # Consulta API de roteamento OSRM (motor padrão global OpenStreetMap)
+        try:
+            url = f"https://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=false"
+            resp = self.session.get(url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("code") == "Ok" and data.get("routes"):
+                    r = data["routes"][0]
+                    duracao_min = int(round(r.get("duration", 0) / 60))
+                    distancia_km = round(r.get("distance", 0) / 1000, 1)
 
-        if tempo_min >= 60:
-            horas = tempo_min // 60
-            min_rest = tempo_min % 60
-            tempo_formatado = f"{horas}h e {min_rest} minutos" if min_rest > 0 else f"{horas} horas"
-        else:
-            tempo_formatado = f"{tempo_min} minutos"
+                    if duracao_min >= 60:
+                        horas = duracao_min // 60
+                        min_rest = duracao_min % 60
+                        tempo_str = f"{horas}h e {min_rest} minutos" if min_rest > 0 else f"{horas} horas"
+                    else:
+                        tempo_str = f"{duracao_min} minutos"
 
-        resposta = (
-            f"Consultando o Waze em tempo real, a distância de {nome_origem} até {nome_destino} "
-            f"é de aproximadamente {distancia_km} km. Com o trânsito atual, o tempo estimado de viagem é de {tempo_formatado}, senhor."
-        )
-        print(f"✅ [WAZE SUCESSO] {distancia_km} km | {tempo_formatado}")
-        return resposta
+                    resposta = (
+                        f"Calculando o trajeto em tempo real, a distância de {nome_origem} até {nome_destino} "
+                        f"é de aproximadamente {distancia_km} km. O tempo estimado de deslocamento é de {tempo_str}, senhor."
+                    )
+                    print(f"✅ [ROTAS SUCESSO] {distancia_km} km | {tempo_str}")
+                    return resposta
+        except Exception as e:
+            print(f"⚠️ [ROTAS] Falha no cálculo: {e}")
+
+        return f"Não foi possível calcular a rota entre '{nome_origem}' e '{nome_destino}' no momento, senhor."
 
 waze_service = WazeService()

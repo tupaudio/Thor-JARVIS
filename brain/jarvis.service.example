@@ -1,0 +1,20 @@
+# /etc/systemd/system/jarvis.service   (ajuste User e caminhos)
+[Unit]
+Description=J.A.R.V.I.S. (servidor de bancada)
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+User=thor
+WorkingDirectory=/home/thor/projetos/Jarvis/brain
+EnvironmentFile=/home/thor/projetos/Jarvis/brain/.env
+ExecStart=/home/thor/projetos/Jarvis/.venv/bin/python -u main.py
+Restart=on-failure
+RestartSec=5
+SupplementaryGroups=dialout
+# Hardening básico
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

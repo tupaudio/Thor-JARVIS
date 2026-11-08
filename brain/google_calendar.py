@@ -10,8 +10,6 @@ import dateutil.parser
 
 from google_auth_manager import google_auth_manager
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 class GoogleCalendarService:
     def __init__(self):

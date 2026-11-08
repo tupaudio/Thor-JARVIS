@@ -6,8 +6,6 @@ o rosto robótico do display OLED 1.5" diretamente no terminal!
 
 import sys
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 class HardwareSimulator:
     def __init__(self):

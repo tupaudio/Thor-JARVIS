@@ -8,8 +8,6 @@ import sys
 import requests
 from geopy.geocoders import Nominatim
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 # Mapeamento dos códigos WMO da Open-Meteo para descrições em português
 WMO_CODES = {

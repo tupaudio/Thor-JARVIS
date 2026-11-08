@@ -1,7 +1,7 @@
 """
 Módulo de Protocolos Stark para o J.A.R.V.I.S.
 Orquestra comandos macros e cenas de produtividade, lazer, segurança e rotina diária.
-Combina áudio, programas do Windows, Spotify, iluminação inteligente, câmera e Telegram.
+Combina iluminação inteligente, câmera do dock e Telegram.
 """
 
 import os
@@ -10,8 +10,6 @@ import time
 from datetime import datetime
 from dotenv import load_dotenv
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(env_path)
@@ -46,36 +44,29 @@ class ProtocolsService:
     def _protocolo_foco(self) -> str:
         """Configura ambiente ideal para produtividade e código."""
         from hardware_simulator import hardware
-        from windows_service import windows_service
+        from system_service import system_service
         from spotify_service import spotify_service
         from iot_service import iot_service
 
         hardware.atualizar_tela(titulo="PROTOCOLO FOCO", subtitulo="Iniciando ambiente...", icone="💻")
         
-        # 1. Ajustar volume
-        windows_service.controlar_volume("definir", 35)
-
-        # 2. Abrir ferramentas
-        windows_service.abrir_aplicativo("VS Code")
-        windows_service.abrir_aplicativo("Chrome")
-
-        # 3. Ajustar iluminação
+        # 1. Ajustar iluminação
         iot_service.controlar("luz do quarto", "brilho", "60")
         iot_service.controlar("fita led", "cor", "azul ciano")
         iot_service.controlar("fita led", "brilho", "70")
 
-        # 4. Música de foco no Spotify
+        # 2. Música de foco no Spotify
         spotify_service.tocar("Synthwave Chill", tipo="playlist")
 
         return (
             "Protocolo de Foco ativado com sucesso, senhor. "
-            "Volume em 35%, VS Code e Chrome abertos, iluminação azul ciano e trilha sonora de foco iniciada. Bom trabalho!"
+            "Iluminação azul ciano e trilha sonora de foco iniciadas. Bom trabalho!"
         )
 
     def _protocolo_cinema(self) -> str:
         """Ambiente relaxante para filmes ou vídeos."""
         from hardware_simulator import hardware
-        from windows_service import windows_service
+        from system_service import system_service
         from spotify_service import spotify_service
         from iot_service import iot_service
 
@@ -84,31 +75,25 @@ class ProtocolsService:
         # 1. Pausa Spotify
         spotify_service.pausar()
 
-        # 2. Ajusta som do PC
-        windows_service.controlar_volume("definir", 75)
-
-        # 3. Luzes de cinema
+        # 2. Luzes de cinema
         iot_service.controlar("luz do quarto", "desligar")
         iot_service.controlar("fita led", "cor", "ambar")
         iot_service.controlar("fita led", "brilho", "20")
 
-        # 4. Abre navegador
-        windows_service.abrir_aplicativo("https://www.youtube.com")
-
         return (
             "Protocolo Cinema ativo, senhor. "
-            "Luz do quarto apagada, fita LED em âmbar suave a 20%, som elevado para 75% e tela de streaming aberta."
+            "Luz do quarto apagada e fita LED em âmbar suave a 20%."
         )
 
     def _protocolo_sair_da_base(self) -> str:
-        """Tranca o PC, apaga luzes, tira foto de perímetro e avisa no Telegram."""
+        """Apaga luzes, tira foto da bancada pela câmera do dock e avisa no Telegram."""
         from hardware_simulator import hardware
-        from windows_service import windows_service
+        from system_service import system_service
         from spotify_service import spotify_service
         from telegram_service import telegram_service
         from iot_service import iot_service
 
-        hardware.atualizar_tela(titulo="PROTOCOLO SAIR", subtitulo="Trancando sistemas...", icone="🔒")
+        hardware.atualizar_tela(titulo="PROTOCOLO SAIR", subtitulo="Desligando bancada...", icone="🔒")
 
         # 1. Pausa música
         spotify_service.pausar()
@@ -117,27 +102,24 @@ class ProtocolsService:
         iot_service.controlar("tudo", "desligar")
 
         # 3. Tira foto de perímetro
-        foto_path = windows_service.tirar_foto_webcam()
+        foto_path = system_service.tirar_foto_camera()
         agora_str = datetime.now().strftime("%d/%m/%Y às %H:%M")
         
         if foto_path and os.path.exists(foto_path):
             telegram_service.enviar_foto(
                 caminho_arquivo=foto_path,
-                legenda=f"🛡️ [PROTOCOLO SAIR DA BASE] Estação de trabalho trancada e segura em {agora_str}, senhor."
+                legenda=f"🛡️ [PROTOCOLO SAIR DA BASE] Bancada desligada e segura em {agora_str}, senhor."
             )
         else:
-            telegram_service.enviar_mensagem(f"🛡️ [PROTOCOLO SAIR DA BASE] Estação trancada e segura em {agora_str}, senhor.")
+            telegram_service.enviar_mensagem(f"🛡️ [PROTOCOLO SAIR DA BASE] Bancada desligada e segura em {agora_str}, senhor.")
 
-        # 4. Tranca o Windows
-        windows_service.bloquear_computador()
-
-        return "Protocolo Sair da Base executado com sucesso. Luzes apagadas, foto enviada ao seu Telegram e computador trancado, senhor."
+        return "Protocolo Sair da Base executado com sucesso. Luzes apagadas e registro da bancada enviado ao seu Telegram, senhor."
 
     def _protocolo_bom_dia(self) -> str:
-        """Briefing matinal completo: Clima, Telemetria do PC, Iluminação e Música."""
+        """Briefing matinal completo: Clima, Telemetria do servidor, Iluminação e Música."""
         from hardware_simulator import hardware
         from weather_service import weather_service
-        from windows_service import windows_service
+        from system_service import system_service
         from spotify_service import spotify_service
         from iot_service import iot_service
 
@@ -150,7 +132,7 @@ class ProtocolsService:
 
         # 2. Coletar dados
         clima = weather_service.consultar_clima()
-        telemetria = windows_service.obter_telemetria()
+        telemetria = system_service.obter_telemetria()
 
         # 3. Música suave
         spotify_service.tocar("Morning Coffee", tipo="playlist")

@@ -1,165 +1,254 @@
 """
-Módulo de Voz do JARVIS (Text-to-Speech e Speech-to-Text).
-Utiliza Edge-TTS para fala neural e SoundDevice + Google Speech para escuta sem depender do PyAudio.
+voice_engine.py — Voz do J.A.R.V.I.S. (Edge-TTS -> HUD do iPhone).
+
+Pipeline de baixa latência:
+  * speak() NÃO bloqueia: enfileira o texto e retorna. Uma thread de voz consome a fila.
+  * O texto é limpo para fala (sem markdown/emoji/URL: o Edge-TTS lê "check mark button" etc.)
+    e dividido em trechos por sentença; o PRIMEIRO trecho é curto. Cada trecho é sintetizado e
+    publicado assim que fica pronto, então o iPhone começa a falar após ~1 sentença em vez de
+    esperar a resposta inteira, enquanto o servidor já sintetiza o trecho seguinte.
+  * Um event loop asyncio dedicado e persistente (antes: um loop novo por chamada) e timeout por
+    trecho: uma conexão pendurada com o serviço da Microsoft não trava mais as falas seguintes.
+  * Fila limitada (mantém só as falas mais recentes) e barge-in com parar().
+  * sounddevice/numpy/pygame são importados só quando realmente usados (servidor headless não
+    precisa de PortAudio/SDL para falar pelo iPhone).
 """
 
 import io
 import os
-import sys
+import re
 import wave
+import queue
 import asyncio
-import subprocess
-import numpy as np
-import sounddevice as sd
-import edge_tts
-import speech_recognition as sr
+import threading
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
+from dotenv import load_dotenv
 
-import pygame
-import time
+from env_utils import ENV_PATH
+
+load_dotenv(ENV_PATH)
+
+_RE_URL = re.compile(r"https?://\S+")
+_RE_MD = re.compile(r"[*_`#>~]+")
+_RE_EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]")
+_RE_BULLET = re.compile(r"(?m)^\s*[•\-–·▪]\s+")
+_RE_SENT = re.compile(r"(?<=[.!?…])\s+")
+
+
+def limpar_para_fala(texto: str) -> str:
+    t = _RE_URL.sub("link", texto)
+    t = _RE_BULLET.sub("", t)
+    t = _RE_EMOJI.sub("", t)
+    t = _RE_MD.sub("", t)
+    linhas = [l.strip() for l in t.splitlines() if l.strip()]
+    t = " ".join(l if re.search(r"[.!?…:;]$", l) else l + "." for l in linhas)
+    return re.sub(r"\s{2,}", " ", t).strip()
+
+
+def dividir_em_trechos(texto: str, primeiro: int = 140, demais: int = 260) -> list:
+    sentencas = [s for s in _RE_SENT.split(texto) if s]
+    trechos, atual, limite = [], "", primeiro
+    for s in sentencas:
+        while len(s) > limite:  # sentença gigante: corta em espaço
+            corte = s.rfind(" ", 0, limite)
+            corte = corte if corte > 40 else limite
+            parte, s = s[:corte], s[corte:].lstrip()
+            if atual:
+                trechos.append(atual)
+                atual, limite = "", demais
+            trechos.append(parte)
+            limite = demais
+        if atual and len(atual) + 1 + len(s) > limite:
+            trechos.append(atual)
+            atual, limite = "", demais
+        atual = f"{atual} {s}".strip()
+    if atual:
+        trechos.append(atual)
+    return trechos
+
 
 class VoiceEngine:
+    TEXTO_MAX = 1500
+    FILA_MAX = 3
+    TIMEOUT_TRECHO = 20.0
+
     def __init__(self, voice_name: str = "pt-BR-AntonioNeural"):
         self.voice_name = voice_name
-        self.recognizer = sr.Recognizer()
         self.sample_rate = 16000
+        self.audio_output = os.getenv("JARVIS_AUDIO_OUTPUT", "iphone").strip().lower()
+        self._fila: "queue.Queue" = queue.Queue()
+        self._worker = None
+        self._worker_lock = threading.Lock()
+        self._loop = None
+        self._loop_lock = threading.Lock()
+        self._geracao = 0           # incrementa em parar(): invalida o que estava na fila
+        self._recognizer = None
+
+    # ---------------------------------------------------------- infraestrutura
+    def _garantir_loop(self):
+        with self._loop_lock:
+            if self._loop is None or not self._loop.is_running():
+                loop = asyncio.new_event_loop()
+                t = threading.Thread(target=loop.run_forever, daemon=True, name="VoiceAsyncLoop")
+                t.start()
+                self._loop = loop
+            return self._loop
+
+    def _garantir_worker(self):
+        with self._worker_lock:
+            if self._worker is None or not self._worker.is_alive():
+                self._worker = threading.Thread(target=self._consumir, daemon=True, name="VoiceWorker")
+                self._worker.start()
+
+    async def _sintetizar(self, texto: str, voz: str, rate: str, pitch: str) -> bytes:
+        import edge_tts
+
+        async def _coletar():
+            buf = bytearray()
+            async for chunk in edge_tts.Communicate(texto, voice=voz, rate=rate, pitch=pitch).stream():
+                if chunk.get("type") == "audio":
+                    buf.extend(chunk.get("data", b""))
+            return bytes(buf)
+
+        return await asyncio.wait_for(_coletar(), timeout=self.TIMEOUT_TRECHO)
+
+    def _sintetizar_sync(self, texto: str, voz: str, rate: str, pitch: str) -> bytes:
+        fut = asyncio.run_coroutine_threadsafe(self._sintetizar(texto, voz, rate, pitch), self._garantir_loop())
         try:
-            pygame.mixer.init()
+            return fut.result(timeout=self.TIMEOUT_TRECHO + 5)
         except Exception as e:
-            print(f"⚠️ [VOZ] Falha ao inicializar pygame.mixer: {e}")
+            fut.cancel()
+            print(f"[VOZ AVISO] Falha ao sintetizar trecho: {type(e).__name__}: {e}")
+            return b""
 
-    async def _generate_audio_bytes(self, text: str, voice: str, rate: str = "+0%", pitch: str = "+0Hz") -> bytes:
-        communicate = edge_tts.Communicate(text, voice=voice, rate=rate, pitch=pitch)
-        audio_stream = bytearray()
-        async for chunk in communicate.stream():
-            if chunk.get("type") == "audio":
-                audio_stream.extend(chunk.get("data", b""))
-        return bytes(audio_stream)
-
-    def speak(self, text: str):
-        """
-        Sintetiza e reproduz a fala do assistente diretamente da memória RAM via pygame.mixer,
-        adaptando voz, velocidade e tom conforme a personalidade ativa.
-        """
+    @staticmethod
+    def _parametros_persona(padrao_voz: str):
         try:
             from persona_manager import persona_manager
             p = persona_manager.obter_persona()
-            nome_persona = p.get("nome", "J.A.R.V.I.S.")
-            voz = p.get("voz", self.voice_name)
-            rate = p.get("rate", "+0%")
-            pitch = p.get("pitch", "+0Hz")
-            is_r2d2 = (p.get("id") == "R2D2")
+            return p.get("nome", "J.A.R.V.I.S."), p.get("voz", padrao_voz), p.get("rate", "+0%"), p.get("pitch", "+0Hz")
         except Exception:
-            nome_persona = "J.A.R.V.I.S."
-            voz = self.voice_name
-            rate = "+0%"
-            pitch = "+0Hz"
-            is_r2d2 = False
+            return "J.A.R.V.I.S.", padrao_voz, "+0%", "+0Hz"
 
-        print(f"\n🎙️ [{nome_persona}]: \"{text}\"")
+    # ------------------------------------------------------------------ API
+    def speak(self, text: str):
+        """Enfileira a fala e retorna imediatamente (não bloqueia o HTTP nem o Telegram)."""
+        if not text or not text.strip():
+            return
+        nome, voz, rate, pitch = self._parametros_persona(self.voice_name)
+        print(f"\n🎙️ [{nome}]: \"{text}\"")
+        # Fila curta: se o servidor ficou para trás, descarta as falas mais antigas.
+        while self._fila.qsize() >= self.FILA_MAX:
+            try:
+                self._fila.get_nowait()
+            except queue.Empty:
+                break
+        self._fila.put((self._geracao, text, voz, rate, pitch))
+        self._garantir_worker()
 
-        try:
-            # Se a persona for o R2-D2, primeiro toca os bipes eletrônicos do droide!
-            if is_r2d2:
-                try:
-                    from persona_manager import persona_manager
-                    r2_wav = persona_manager.gerar_audio_r2d2()
-                    if r2_wav:
-                        bio_r2 = io.BytesIO(r2_wav)
-                        pygame.mixer.music.load(bio_r2)
-                        pygame.mixer.music.play()
-                        while pygame.mixer.music.get_busy():
-                            time.sleep(0.04)
-                except Exception:
-                    pass
+    def _consumir(self):
+        while True:
+            geracao, texto, voz, rate, pitch = self._fila.get()
+            if geracao != self._geracao:
+                continue
+            try:
+                self._falar(geracao, texto, voz, rate, pitch)
+            except Exception as e:  # o worker nunca morre
+                print(f"[VOZ AVISO] Erro na fala: {e}")
 
-            # Execução assíncrona segura contra conflito de event loops
-            def _rodar_async():
-                novo_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(novo_loop)
-                try:
-                    return novo_loop.run_until_complete(self._generate_audio_bytes(text, voice=voz, rate=rate, pitch=pitch))
-                finally:
-                    novo_loop.close()
-
-            audio_bytes = _rodar_async()
-            if not audio_bytes:
+    def _falar(self, geracao: int, texto: str, voz: str, rate: str, pitch: str):
+        falavel = limpar_para_fala(texto)[: self.TEXTO_MAX]
+        dock = None
+        if self.audio_output != "local":
+            from iphone_dock_server import dock_state as dock
+            dock.definir_resposta(texto)          # o HUD mostra o texto completo imediatamente
+        for trecho in dividir_em_trechos(falavel):
+            if geracao != self._geracao:          # barge-in: abandona o resto
                 return
+            audio = self._sintetizar_sync(trecho, voz, rate, pitch)
+            if not audio:
+                continue
+            if self.audio_output == "local":
+                self._tocar_local(audio)
+            else:
+                dock.publicar_audio(audio, trecho)
+        if dock is not None:
+            dock.fim_da_resposta()
 
-            bio = io.BytesIO(audio_bytes)
-            pygame.mixer.music.load(bio)
-            pygame.mixer.music.play()
-            
-            while pygame.mixer.music.get_busy():
-                time.sleep(0.04)
-
-        except Exception as e:
-            print(f"[VOZ AVISO] Erro ao reproduzir voz: {e}")
+    def _tocar_local(self, audio: bytes):
+        import time
+        import pygame
+        if not pygame.mixer.get_init():
+            pygame.mixer.init()
+        pygame.mixer.music.load(io.BytesIO(audio))
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.04)
 
     def parar(self):
-        """Interrompe a fala do assistente imediatamente (barge-in)."""
+        """Barge-in: cancela fala em andamento e fila."""
+        self._geracao += 1
+        while True:
+            try:
+                self._fila.get_nowait()
+            except queue.Empty:
+                break
         try:
-            if pygame.mixer.music.get_busy():
+            from iphone_dock_server import dock_state
+            dock_state.limpar_audio()
+        except Exception:
+            pass
+        try:
+            import pygame
+            if pygame.mixer.get_init():
                 pygame.mixer.music.stop()
         except Exception:
             pass
 
+    # ---------------------------------------------- microfone do servidor (opcional)
     def listen(self, duration: int = 15, timeout_silencio: float = 2.5) -> str:
-        """
-        Captura áudio do microfone usando SoundDevice e converte em texto.
-        Possui detecção de fala e silêncio (VAD) para finalizar rapidamente
-        assim que o usuário terminar de falar, sem esperar os 15s completos se houver silêncio.
-        """
+        """Captura do microfone do SERVIDOR (só para testes; o uso normal é o microfone do iPhone)."""
         try:
-            print(f"\n🎧 [OUVINDO...] Fale agora senhor (janela máxima de {duration}s)...")
-            chunk_duration = 0.25
-            chunk_samples = int(chunk_duration * self.sample_rate)
-            total_chunks = int(duration / chunk_duration)
-            
-            frames = []
-            fala_iniciada = False
-            tempo_silencio = 0.0
-            limiar_energia = 350 # Limiar RMS para detecção de voz
-
-            with sd.InputStream(samplerate=self.sample_rate, channels=1, dtype='int16') as stream:
-                for _ in range(total_chunks):
-                    data, _ = stream.read(chunk_samples)
-                    frames.append(data.copy())
-                    
-                    # Cálculo de energia sonora RMS do chunk
-                    rms = np.sqrt(np.mean(data.astype(np.float32)**2))
-                    if rms > limiar_energia:
-                        fala_iniciada = True
-                        tempo_silencio = 0.0
-                    elif fala_iniciada:
-                        tempo_silencio += chunk_duration
-                        # Se já começou a falar e fez silêncio por tempo suficiente, encerra antecipadamente
-                        if tempo_silencio >= timeout_silencio:
+            import numpy as np
+            import sounddevice as sd
+            import speech_recognition as sr
+        except Exception as e:
+            print(f"⚠️ [MICROFONE] Dependências de áudio local ausentes: {e}")
+            return ""
+        try:
+            print(f"\n🎧 [OUVINDO] Janela de {duration}s...")
+            passo = 0.25
+            amostras = int(passo * self.sample_rate)
+            frames, falou, silencio = [], False, 0.0
+            with sd.InputStream(samplerate=self.sample_rate, channels=1, dtype="int16") as stream:
+                for _ in range(int(duration / passo)):
+                    dado, _ = stream.read(amostras)
+                    frames.append(dado.copy())
+                    rms = float(np.sqrt(np.mean(dado.astype(np.float32) ** 2)))
+                    if rms > 350:
+                        falou, silencio = True, 0.0
+                    elif falou:
+                        silencio += passo
+                        if silencio >= timeout_silencio:
                             break
-
-            print("⏳ [PROCESSANDO VOZ] Interpretando sua fala...")
-            audio_array = np.concatenate(frames, axis=0)
-            
-            wav_io = io.BytesIO()
-            with wave.open(wav_io, 'wb') as wf:
+            wav = io.BytesIO()
+            with wave.open(wav, "wb") as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
                 wf.setframerate(self.sample_rate)
-                wf.writeframes(audio_array.tobytes())
-            wav_io.seek(0)
-            
-            with sr.AudioFile(wav_io) as source:
-                audio = self.recognizer.record(source)
-                texto = self.recognizer.recognize_google(audio, language="pt-BR")
-                print(f"👤 [VOCÊ FALOU]: \"{texto}\"")
-                return texto
-        except sr.UnknownValueError:
-            print("⚠️ [JARVIS]: Não detectei nenhuma fala clara no microfone, senhor.")
-            return ""
+                wf.writeframes(np.concatenate(frames, axis=0).tobytes())
+            wav.seek(0)
+            if self._recognizer is None:
+                self._recognizer = sr.Recognizer()
+                self._recognizer.operation_timeout = 10  # sem isto o reconhecimento pode pendurar indefinidamente
+            with sr.AudioFile(wav) as fonte:
+                audio = self._recognizer.record(fonte)
+            texto = self._recognizer.recognize_google(audio, language="pt-BR")
+            print(f"👤 [VOCÊ FALOU]: \"{texto}\"")
+            return texto
         except Exception as e:
-            print(f"⚠️ [MICROFONE AVISO]: {e}")
+            print(f"⚠️ [MICROFONE] {type(e).__name__}: {e}")
             return ""
+
 
 voice_engine = VoiceEngine()

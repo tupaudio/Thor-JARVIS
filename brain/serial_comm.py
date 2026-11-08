@@ -11,8 +11,6 @@ import time
 import threading
 from dotenv import load_dotenv
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(env_path)
@@ -20,7 +18,7 @@ load_dotenv(env_path)
 class SerialCommController:
     """Controlador serial com autodeteção e sincronização Arduino + Simulador."""
     def __init__(self):
-        self.porta_configurada = os.getenv("ARDUINO_PORT", "COM3")
+        self.porta_configurada = os.getenv("ARDUINO_PORT", "/dev/ttyACM0")
         try:
             self.baudrate = int(os.getenv("ARDUINO_BAUD", "115200"))
         except ValueError:
@@ -52,7 +50,7 @@ class SerialCommController:
 
                 todas_portas = list(serial.tools.list_ports.comports())
                 
-                # Filtra portas virtuais de Bluetooth para evitar hang do Windows RFCOMM
+                # Ignora portas Bluetooth/virtuais (rfcomm)
                 portas_usb_reais = []
                 for p in todas_portas:
                     desc = (p.description or "").lower()
@@ -78,11 +76,18 @@ class SerialCommController:
                             porta_alvo = p.device
                             break
 
+                # 3. Linux: nós de dispositivo do Arduino Uno (ttyACM*) e conversores (ttyUSB*)
+                if not porta_alvo:
+                    import glob
+                    candidatas = sorted(glob.glob("/dev/ttyACM*")) + sorted(glob.glob("/dev/ttyUSB*"))
+                    if candidatas:
+                        porta_alvo = candidatas[0]
+
                 # Se nenhuma porta USB real for encontrada
                 if not porta_alvo:
                     if not self._tentou_conectar:
                         portas_desc = [f"{p.device} ({p.description})" for p in todas_portas]
-                        desc_str = ", ".join(portas_desc) if portas_desc else "nenhuma porta COM disponível"
+                        desc_str = ", ".join(portas_desc) if portas_desc else "nenhuma porta serial /dev/tty* disponível"
                         print(f"ℹ️ [SERIAL] Arduino físico não detectado via USB ({desc_str}). Modo Simulador Virtual ativo.")
                         self._tentou_conectar = True
                     self.conectado = False
@@ -100,6 +105,8 @@ class SerialCommController:
             except Exception as e:
                 print(f"⚠️ [SERIAL] Falha ao conectar ao Arduino: {e}. Alternando para simulador.")
                 self.conectado = False
+                if "ermission" in str(e):
+                    print("💡 [SERIAL] Sem permissão na porta: adicione o usuário ao grupo 'dialout' (sudo usermod -aG dialout $USER) e faça login de novo.")
                 return False
 
     def is_conectado(self) -> bool:
@@ -207,11 +214,23 @@ class SerialCommController:
         if self.conectar():
             self.enviar_comando(cmd, aguardar_ack=False)
 
+        try:
+            from iphone_dock_server import dock_state
+            dock_state.atualizar_face(exp)
+        except Exception:
+            pass
+
         sim = self._get_simulator()
         sim.desenhar_rosto_oled(expressao)
 
     def atualizar_tela(self, titulo: str, subtitulo: str, icone: str = "🤖"):
-        """Atualiza o painel informativo no terminal e na tela TFT 4.0\" do ESP32-S3."""
+        """Atualiza o painel informativo no terminal, no iPhone 11 Dock e na tela TFT 4.0\" do ESP32-S3."""
+        try:
+            from iphone_dock_server import dock_state
+            dock_state.atualizar_hud(titulo=titulo, subtitulo=subtitulo, icone=icone)
+        except Exception:
+            pass
+
         if self.esp32_ip:
             def _sync_esp32():
                 try:

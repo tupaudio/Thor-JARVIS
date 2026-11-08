@@ -11,8 +11,6 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(env_path)
@@ -86,10 +84,8 @@ class SpotifyService:
                 sp.start_playback()
                 return "Reprodução do Spotify retomada, senhor."
             except Exception as e:
-                # Tenta abrir aplicativo no Windows se não houver dispositivo ativo
                 if "NO_ACTIVE_DEVICE" in str(e).upper() or "NOT FOUND" in str(e).upper():
-                    subprocess.Popen(["cmd.exe", "/c", "start spotify:"], shell=True)
-                    return "Iniciando o Spotify no seu computador, senhor. Por favor aguarde um instante."
+                    return "Não há nenhum dispositivo Spotify ativo, senhor. Abra o Spotify no iPhone e tente de novo."
                 return f"Não foi possível retomar o Spotify: {e}"
 
         print(f"\n🎵 [SPOTIFY BUSCA] Pesquisando {tipo} por '{termo_busca}'...")
@@ -117,8 +113,8 @@ class SpotifyService:
                 try:
                     sp.start_playback(device_id=device_id, uris=[track_uri])
                 except Exception:
-                    # Fallback abre direto o link / URI do Spotify no Windows
-                    subprocess.Popen(["cmd.exe", "/c", f"start {track_uri}"], shell=True)
+                    # Sem dispositivo ativo (servidor headless)
+                    return "Não há nenhum dispositivo Spotify ativo, senhor. Abra o Spotify no iPhone e tente de novo."
                 
                 return f"Reproduzindo '{track_name}' de {artist_name} no Spotify."
 
@@ -130,7 +126,7 @@ class SpotifyService:
                 try:
                     sp.start_playback(device_id=device_id, context_uri=artist_uri)
                 except Exception:
-                    subprocess.Popen(["cmd.exe", "/c", f"start {artist_uri}"], shell=True)
+                    return "Não há nenhum dispositivo Spotify ativo, senhor. Abra o Spotify no iPhone e tente de novo."
 
                 return f"Tocando músicas de {artist_name} no Spotify."
 
@@ -142,7 +138,7 @@ class SpotifyService:
                 try:
                     sp.start_playback(device_id=device_id, context_uri=playlist_uri)
                 except Exception:
-                    subprocess.Popen(["cmd.exe", "/c", f"start {playlist_uri}"], shell=True)
+                    return "Não há nenhum dispositivo Spotify ativo, senhor. Abra o Spotify no iPhone e tente de novo."
 
                 return f"Tocando a playlist '{playlist_name}' no Spotify."
 
@@ -155,7 +151,7 @@ class SpotifyService:
                 try:
                     sp.start_playback(device_id=device_id, context_uri=album_uri)
                 except Exception:
-                    subprocess.Popen(["cmd.exe", "/c", f"start {album_uri}"], shell=True)
+                    return "Não há nenhum dispositivo Spotify ativo, senhor. Abra o Spotify no iPhone e tente de novo."
 
                 return f"Tocando o álbum '{album_name}' de {artist_name} no Spotify."
 
@@ -168,15 +164,15 @@ class SpotifyService:
                     try:
                         sp.start_playback(device_id=device_id, uris=[track_uri])
                     except Exception:
-                        subprocess.Popen(["cmd.exe", "/c", f"start {track_uri}"], shell=True)
+                        return "Não há nenhum dispositivo Spotify ativo, senhor. Abra o Spotify no iPhone e tente de novo."
                     return f"Reproduzindo '{track['name']}' de {track['artists'][0]['name']} no Spotify."
                 
                 return f"Não encontrei nenhuma música ou artista para '{termo_busca}' no Spotify, senhor."
 
         except Exception as e:
-            # Em caso de erro de dispositivo inativo, abre o aplicativo
-            subprocess.Popen(["cmd.exe", "/c", f"start spotify:search:{termo_busca}"], shell=True)
-            return f"Abrindo busca por '{termo_busca}' diretamente no Spotify do seu computador."
+            if "NO_ACTIVE_DEVICE" in str(e).upper():
+                return "Não há nenhum dispositivo Spotify ativo, senhor. Abra o Spotify no iPhone e tente de novo."
+            return f"Não consegui tocar no Spotify, senhor: {str(e)[:120]}"
 
     def pausar(self) -> str:
         """Pausa a reprodução no Spotify."""

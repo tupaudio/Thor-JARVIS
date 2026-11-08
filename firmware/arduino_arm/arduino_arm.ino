@@ -1,33 +1,34 @@
 /*
  * ==============================================================================
- * J.A.R.V.I.S. - Firmware Completo: Braço Robótico + Rosto Robótico no OLED 1.5"
- * Placa: Arduino UNO + Sensor Shield V5.0
- * Display: OLED 1.5" 128x128 SPI (Waveshare SSD1327)
+ * J.A.R.V.I.S. - Firmware Completo: Braco Robotico + Rosto Robotico no OLED 1.5"
+ * Placa: Arduino UNO R3 + Sensor Shield V5.0
+ * Display: OLED 1.5" 128x128 SPI (Driver SH1107 - GME128128-01-SPI Ver 3.1)
  * ==============================================================================
  * 
- * ESQUEMA DE LIGAÇÃO DOS PINOS (Na Sensor Shield V5.0):
+ * ESQUEMA DE LIGACAO DOS PINOS (Na Sensor Shield V5.0):
  * 
- * [ DISPLAY OLED 1.5" SPI ]:
- * - VCC  -> 5V ou 3.3V (Trilha V)
+ * [ DISPLAY OLED 1.5" SH1107 SPI (7 Pinos) ]:
+ * - VCC  -> 3.3V ou 5V (Conforme serigrafia do modulo)
  * - GND  -> GND (Trilha G)
  * - DIN  -> Pino Digital 11 (MOSI - Hardware SPI)
  * - CLK  -> Pino Digital 13 (SCK - Hardware SPI)
  * - CS   -> Pino Digital 10 (Chip Select)
- * - DC   -> Pino Digital 8  (Data / Command)
- * - RST  -> Pino Digital 7  (Reset)
+ * - DC   -> Pino Digital 9  (Data / Command)
+ * - RST  -> Pino Digital 8  (Reset)
  * 
- * [ SERVOMOTORES DO BRAÇO ]:
+ * [ SERVOMOTORES SG90 DO BRACO 4-DOF ]:
  * - Pino Digital 2: Servo da Base (Giro)
  * - Pino Digital 3: Servo do Ombro
- * - Pino Digital 5: Servo do Cotovelo
- * - Pino Digital 6: Servo da Garra
+ * - Pino Digital 4: Servo do Cotovelo
+ * - Pino Digital 5: Servo da Garra
  * 
- * ATENÇÃO ELÉTRICA:
+ * ATENCAO ELETRICA:
  * - Remova o jumper 'SEL' da Sensor Shield V5.0.
- * - Ligue a fonte externa 5V 3A no borne azul de parafuso para alimentar os servos!
+ * - Ligue a fonte externa regulada 5V 3A no borne azul de parafuso para os servos!
+ * - Garanta GND comum entre a fonte externa e o Arduino.
  * 
- * BIBLIOTECA NECESSÁRIA NO ARDUINO IDE:
- * - 'U8g2' de olikraus (instale pelo Gerenciador de Bibliotecas da Arduino IDE)
+ * BIBLIOTECA NECESSARIA NO ARDUINO IDE:
+ * - 'U8g2' de olikraus (Instalar pelo Gerenciador de Bibliotecas)
  */
 
 #include <Arduino.h>
@@ -35,8 +36,8 @@
 #include <SPI.h>
 #include <Servo.h>
 
-// Construtor do Display SSD1327 128x128 SPI usando Page Buffer (Gasta só 128 bytes de RAM!)
-U8G2_SSD1327_WS_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 8, /* reset=*/ 7);
+// Construtor U8g2 para SH1107 128x128 SPI em modo Page Buffer (~128 bytes RAM no UNO)
+U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 
 // Servos
 Servo servoBase;
@@ -46,8 +47,8 @@ Servo servoGarra;
 
 const int PIN_BASE     = 2;
 const int PIN_OMBRO    = 3;
-const int PIN_COTOVELO = 5;
-const int PIN_GARRA    = 6;
+const int PIN_COTOVELO = 4;
+const int PIN_GARRA    = 5;
 
 int posBase     = 90;
 int posOmbro    = 90;

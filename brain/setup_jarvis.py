@@ -13,8 +13,6 @@ import os
 import sys
 import shutil
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")

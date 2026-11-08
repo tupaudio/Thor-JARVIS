@@ -9,8 +9,6 @@ import base64
 from email.mime.text import MIMEText
 from google_auth_manager import google_auth_manager
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 class GmailService:
     def __init__(self):

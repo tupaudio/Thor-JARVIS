@@ -76,3 +76,8 @@ $RECYCLE.BIN/
 *.zip
 cad_3d/Jarvis_3d_references/
 Jarvis_3d_references/
+
+# Certificados HTTPS locais do Stark Dock
+*.pem
+brain.bkp/
+*.bkp

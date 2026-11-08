@@ -1,38 +1,10 @@
 {
-  "luz_quarto": {
-    "nome": "Luz do Quarto",
-    "tipo": "lampada",
-    "comodo": "quarto",
-    "protocolo": "simulado",
-    "status": "desligado",
-    "brilho": 100,
-    "cor": "branco quente",
-    "ip": "",
-    "device_id": "",
-    "local_key": "",
-    "webhook_on": "",
-    "webhook_off": ""
-  },
-  "fita_led": {
-    "nome": "Fita LED da Mesa",
-    "tipo": "led",
-    "comodo": "estacao",
-    "protocolo": "simulado",
-    "status": "desligado",
-    "brilho": 80,
-    "cor": "branco quente",
-    "ip": "",
-    "device_id": "",
-    "local_key": "",
-    "webhook_on": "",
-    "webhook_off": ""
-  },
-  "tomada_bancada": {
-    "nome": "Tomada da Bancada",
+  "tomada_impressora": {
+    "nome": "Tomada Impressora 3D",
     "tipo": "tomada",
     "comodo": "estacao",
     "protocolo": "simulado",
-    "status": "ligado",
+    "status": "desligado",
     "brilho": 100,
     "cor": "",
     "ip": "",
@@ -41,14 +13,28 @@
     "webhook_on": "",
     "webhook_off": ""
   },
-  "abajur": {
-    "nome": "Abajur",
+  "dimmer_quarto": {
+    "nome": "Dimmer do Quarto",
     "tipo": "lampada",
     "comodo": "quarto",
     "protocolo": "simulado",
     "status": "desligado",
     "brilho": 100,
-    "cor": "ambar",
+    "cor": "branco quente",
+    "ip": "",
+    "device_id": "",
+    "local_key": "",
+    "webhook_on": "",
+    "webhook_off": ""
+  },
+  "luz_estudo": {
+    "nome": "Luz de Estudo",
+    "tipo": "lampada",
+    "comodo": "estacao",
+    "protocolo": "simulado",
+    "status": "desligado",
+    "brilho": 100,
+    "cor": "branco frio",
     "ip": "",
     "device_id": "",
     "local_key": "",

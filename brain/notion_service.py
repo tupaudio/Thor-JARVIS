@@ -9,8 +9,6 @@ from datetime import datetime
 from dotenv import load_dotenv
 from notion_client import Client
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 load_dotenv()
 

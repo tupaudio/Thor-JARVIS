@@ -1,6 +1,6 @@
 """
 Módulo do Modo Sentinela e Vigilância por Câmera para o J.A.R.V.I.S.
-Monitora a estação de trabalho em segundo plano via câmera frontal.
+Monitora a estação de trabalho em segundo plano via câmera do dock.
 Ao detectar movimento de pessoas na frente da mesa:
 1. Tranca imediatamente a estação de trabalho (LockWorkStation).
 2. Captura uma foto do indivíduo em alta resolução.
@@ -14,8 +14,6 @@ import threading
 from datetime import datetime
 from dotenv import load_dotenv
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
 
 env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(env_path)
@@ -146,26 +144,20 @@ class SentinelService:
                     self.ultimo_disparo = agora
                     horario_str = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
                     self.eventos_registrados.append(f"Movimento em {horario_str}")
+                    del self.eventos_registrados[:-50]
                     print(f"\n🚨 [SENTINELA ALERTA] MOVIMENTO DETECTADO ÀS {horario_str}!")
 
                     # 1. Salvar imagem do invasor
                     cv2.imwrite(self.alert_path, frame_atual)
-
-                    # 2. Bloquear computador imediatamente
-                    try:
-                        import ctypes
-                        ctypes.windll.user32.LockWorkStation()
-                    except Exception:
-                        pass
 
                     # 3. Disparar foto para o Telegram
                     try:
                         from telegram_service import telegram_service
                         legenda = (
                             f"🚨 *ALERTA DO MODO SENTINELA J.A.R.V.I.S.*\n\n"
-                            f"⚠️ Movimento detectado na sua estação de trabalho em *{horario_str}*!\n"
-                            f"🔒 A tela do computador foi bloqueada imediatamente para proteção de dados.\n"
-                            f"📸 Segue a captura de segurança da câmera frontal."
+                            f"⚠️ Movimento detectado na sua bancada em *{horario_str}*!\n"
+                            f""
+                            f"📸 Segue a captura de segurança da câmera do dock."
                         )
                         telegram_service.enviar_foto(caminho_arquivo=self.alert_path, legenda=legenda)
                     except Exception as e:
