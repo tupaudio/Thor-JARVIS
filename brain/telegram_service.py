@@ -5,6 +5,7 @@ receber respostas faladas com Edge-TTS e enviar notificações proativas.
 """
 
 import os
+import io
 import sys
 import time
 import json
@@ -119,11 +120,11 @@ class TelegramBotService:
             print(f"⚠️ [TELEGRAM] Erro ao enviar áudio de voz: {e}")
             return False
 
-    def enviar_foto(self, caminho_arquivo: str, chat_id: str = None, legenda: str = "") -> bool:
+    def enviar_foto(self, foto, chat_id: str = None, legenda: str = "") -> bool:
         """
-        Envia uma foto da webcam ou screenshot para o Telegram do usuário.
+        Envia uma foto (caminho em disco ou bytes JPEG) para o Telegram do usuário.
         """
-        if not self.is_configured() or not os.path.exists(caminho_arquivo):
+        if not self.is_configured():
             return False
         
         target_chat = chat_id or self.chat_id
@@ -132,13 +133,20 @@ class TelegramBotService:
 
         url = f"{self.base_url}/sendPhoto"
         try:
-            with open(caminho_arquivo, "rb") as photo_fp:
-                files = {"photo": photo_fp}
-                data = {"chat_id": target_chat}
-                if legenda:
-                    data["caption"] = legenda
-                resp = self.session.post(url, data=data, files=files, timeout=30)
-                return resp.json().get("ok", False)
+            files = None
+            if isinstance(foto, bytes):
+                files = {"photo": ("snapshot.jpg", io.BytesIO(foto), "image/jpeg")}
+            elif isinstance(foto, str) and os.path.exists(foto):
+                files = {"photo": open(foto, "rb")}
+            else:
+                return False
+
+            data = {"chat_id": target_chat}
+            if legenda:
+                data["caption"] = legenda
+                data["parse_mode"] = "Markdown"
+            resp = self.session.post(url, data=data, files=files, timeout=30)
+            return resp.json().get("ok", False)
         except Exception as e:
             print(f"⚠️ [TELEGRAM] Erro ao enviar foto: {e}")
             return False

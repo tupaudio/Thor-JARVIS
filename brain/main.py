@@ -66,12 +66,14 @@ def main():
     from voice_engine import voice_engine
     from telegram_service import telegram_service
     from iphone_dock_server import iniciar_dock_server
+    from octoprint_service import octoprint_service
 
     if not os.getenv("GEMINI_API_KEY", "").strip() and os.getenv("CLOUD_AI_PROVIDER", "gemini") == "gemini":
         print("⚠️  GEMINI_API_KEY ausente no .env: o modo nuvem Gemini não funcionará até configurá-la.")
 
     telegram_service.iniciar_em_segundo_plano()
     iniciar_dock_server()
+    octoprint_service.iniciar_monitoramento_telegram()
 
     hardware.atualizar_tela(titulo="JARVIS ONLINE", subtitulo="Aguardando comandos...", icone="⚡")
     voice_engine.speak("Sistemas online e operantes, senhor. Como posso auxiliá-lo?")

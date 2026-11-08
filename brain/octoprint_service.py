@@ -11,6 +11,8 @@ Configuração no brain/.env:
 
 import os
 import sys
+import time
+import threading
 import requests
 from dotenv import load_dotenv
 
@@ -97,6 +99,135 @@ class OctoPrintService:
             return bool(r.json().get("isPSUOn"))
         except Exception:
             return None
+
+    # -------------------------------------------------------------------------
+    # Monitoramento Proativo com Fotos no Telegram
+    # -------------------------------------------------------------------------
+    def iniciar_monitoramento_telegram(self, intervalo: float = 15.0):
+        """Inicia thread em background para monitorar a impressão e enviar fotos/marcos no Telegram."""
+        if not self.is_configured():
+            print("ℹ️ [OCTOPRINT] URL ou API Key ausente no .env. Monitoramento suspenso.")
+            return
+        t = threading.Thread(target=self._loop_monitoramento, args=(intervalo,), daemon=True, name="OctoPrintMonitor")
+        t.start()
+        print("🖨️ [OCTOPRINT] Monitoramento proativo com fotos no Telegram ativado.")
+
+    def _obter_foto_camera(self):
+        """Tenta obter o JPEG mais recente da câmera remota do iPhone ou fallback local."""
+        try:
+            from camera_manager import camera_manager
+            jpg = camera_manager.obter_ultimo_jpeg_remoto(max_age_sec=30.0)
+            if jpg:
+                return jpg
+            if os.path.exists(camera_manager.default_photo_path):
+                with open(camera_manager.default_photo_path, "rb") as f:
+                    return f.read()
+        except Exception:
+            pass
+        return None
+
+    def _notificar_telegram(self, texto: str, com_foto: bool = True):
+        from telegram_service import telegram_service
+        foto = self._obter_foto_camera() if com_foto else None
+        if foto:
+            ok = telegram_service.enviar_foto(foto, legenda=texto)
+            if ok:
+                return
+        telegram_service.enviar_mensagem(texto)
+
+    def _loop_monitoramento(self, intervalo: float):
+        time.sleep(10)  # aguarda subida dos serviços
+        imprimindo_anterior = False
+        ultimo_arquivo = ""
+        marcos_notificados = set()
+
+        while True:
+            try:
+                time.sleep(intervalo)
+                if not self.is_configured():
+                    continue
+
+                try:
+                    job = self._get("/api/job")
+                except Exception:
+                    continue
+
+                estado = job.get("state", "")
+                arquivo_info = job.get("job", {}).get("file", {}) or {}
+                nome_arquivo = arquivo_info.get("display") or arquivo_info.get("name") or "Trabalho 3D"
+                prog = job.get("progress", {}) or {}
+                pct = prog.get("completion")
+                restante = prog.get("printTimeLeft")
+                imprimindo_agora = estado in ("Printing", "Paused", "Pausing", "Resuming")
+
+                if nome_arquivo != ultimo_arquivo:
+                    ultimo_arquivo = nome_arquivo
+                    marcos_notificados.clear()
+
+                # 1. Início de Impressão
+                if imprimindo_agora and not imprimindo_anterior:
+                    imprimindo_anterior = True
+                    marcos_notificados.clear()
+                    tempo_est = f"~{int(restante // 60)} min" if restante else "calculando..."
+                    msg = (
+                        f"🚀 *Impressão Iniciada na Ender 3 S1 Pro!*\n"
+                        f"📁 *Arquivo:* `{nome_arquivo}`\n"
+                        f"⏱️ *Estimativa:* {tempo_est}\n"
+                        f"Status: {estado}"
+                    )
+                    self._notificar_telegram(msg, com_foto=True)
+
+                # 2. Marcos de Progresso (25%, 50%, 75%)
+                elif imprimindo_agora and pct is not None:
+                    pct_int = int(pct)
+                    for marco in (25, 50, 75):
+                        if pct_int >= marco and marco not in marcos_notificados:
+                            marcos_notificados.add(marco)
+                            tempo_rest = f"~{int(restante // 60)} min" if restante else "poucos minutos"
+                            temps_str = ""
+                            try:
+                                printer = self._get("/api/printer")
+                                t_tool = printer.get("temperature", {}).get("tool0", {}).get("actual", 0)
+                                t_bed = printer.get("temperature", {}).get("bed", {}).get("actual", 0)
+                                temps_str = f"\n🌡️ Bico: {t_tool:.0f}°C | Mesa: {t_bed:.0f}°C"
+                            except Exception:
+                                pass
+
+                            msg = (
+                                f"📊 *Progresso da Impressão: {marco}%*\n"
+                                f"📁 *Arquivo:* `{nome_arquivo}`\n"
+                                f"⏳ *Restante:* {tempo_rest}"
+                                f"{temps_str}"
+                            )
+                            self._notificar_telegram(msg, com_foto=True)
+
+                # 3. Impressão Concluída (transição para Operational/Done ou 100%)
+                elif imprimindo_anterior and (estado in ("Operational", "Done") or (pct is not None and pct >= 99.8)):
+                    imprimindo_anterior = False
+                    if 100 not in marcos_notificados:
+                        marcos_notificados.add(100)
+                        tempo_total = prog.get("printTime")
+                        duracao = f"~{int(tempo_total // 60)} min" if tempo_total else "concluído"
+                        msg = (
+                            f"🎉 *Impressão Concluída com Sucesso!*\n"
+                            f"📁 *Arquivo:* `{nome_arquivo}`\n"
+                            f"⏱️ *Duração:* {duracao}\n"
+                            f"A mesa começará a esfriar. Parabéns pela peça, senhor!"
+                        )
+                        self._notificar_telegram(msg, com_foto=True)
+
+                # 4. Falha / Cancelamento
+                elif imprimindo_anterior and estado in ("Error", "Cancelling", "Cancelled", "Offline"):
+                    imprimindo_anterior = False
+                    msg = (
+                        f"⚠️ *Alerta da Impressora: Impressão Interrompida!*\n"
+                        f"📁 *Arquivo:* `{nome_arquivo}`\n"
+                        f"Estado: *{estado}*"
+                    )
+                    self._notificar_telegram(msg, com_foto=True)
+
+            except Exception as e:
+                time.sleep(5)
 
 
 octoprint_service = OctoPrintService()
