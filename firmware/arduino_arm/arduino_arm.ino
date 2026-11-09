@@ -42,12 +42,13 @@
 // nos módulos OLED 1.5" chineses GME128128 e genéricos de 7 pinos.
 
 // ==============================================================================
-// 1. PINOS E DRIVER DO DISPLAY OLED 1.5" 128x128 SPI (SH1107)
+// 1. PINOS E DRIVER DO DISPLAY OLED 1.5" 128x128 SPI (Driver SH1107)
 // ==============================================================================
 // Fiação Real Confirmada pelo Usuário:
 // SCL/CLK -> D13 | SDA/DIN -> D11 | CS -> D10 | DC -> D9 | RST -> D8 | VCC/GND -> D13
 //
-// Driver oficial SH1107 128x128 SPI:
+// Driver do Display OLED 1.5" 128x128 SPI:
+// Controlador original comprovado: SH1107 128x128 SPI 4-Wire (U8g2).
 U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 
 // ==============================================================================
@@ -79,10 +80,10 @@ Servo servoGarra;
 int posBase     = 90;
 int posOmbro    = 90;
 int posCotovelo = 90;
-// Garra: calibrada para fechamento completo (135 graus) e abertura total (30 graus)
+// Garra: calibrada para fechamento firme sem forçar o motor (125 graus) e abertura total (30 graus)
 int GARRA_ABERTA  = 30;
-int GARRA_FECHADA = 135;
-int posGarra      = 135;
+int GARRA_FECHADA = 125;
+int posGarra      = 125;
 
 // Estados das Expressões Faciais do J.A.R.V.I.S.
 enum Expressao {
@@ -198,7 +199,10 @@ void posturaProntidao() {
   moverSuave(servoGarra, posGarra, GARRA_FECHADA);
   moverSuave(servoCotovelo, posCotovelo, 90);
   moverSuave(servoOmbro, posOmbro, 90);
-  moverSuave(servoBase, posBase, 90);
+  // Movimento de teste da Base: varredura ampla (130 -> 50 -> 90) para superar atrito e comprovar giro
+  moverSuave(servoBase, posBase, 130, 15);
+  moverSuave(servoBase, posBase, 50, 15);
+  moverSuave(servoBase, posBase, 90, 15);
 }
 
 void posturaDescanso() {
@@ -245,7 +249,29 @@ void rotinaApontar() {
 void setup() {
   Serial.begin(115200);
 
+  // Pulso de Reset físico no D8 para inicialização limpa do controlador SH1107
+  pinMode(8, OUTPUT);
+  digitalWrite(8, LOW);
+  delay(25);
+  digitalWrite(8, HIGH);
+  delay(50);
+
   u8g2.begin();
+  u8g2.setPowerSave(0);
+  u8g2.setContrast(255);
+
+  // Tela de diagnóstico visual ao ligar
+  u8g2.firstPage();
+  do {
+    u8g2.drawFrame(0, 0, 128, 128);
+    u8g2.setFont(u8g2_font_helvB10_tr);
+    u8g2.drawStr(34, 45, "JARVIS");
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(42, 65, "ONLINE");
+    u8g2.drawDisc(64, 95, 10);
+    u8g2.drawCircle(64, 95, 14);
+  } while (u8g2.nextPage());
+  delay(1000);
 
   garantirServosAtivos();
   posturaProntidao();
@@ -312,6 +338,19 @@ void loop() {
       garantirServosAtivos();
       moverSuave(servoGarra, posGarra, ang);
       Serial.print("ACK:GARRA_"); Serial.println(ang);
+    } else if (comando.startsWith("CMD:BASE:")) {
+      int ang = constrain(comando.substring(9).toInt(), 0, 180);
+      garantirServosAtivos();
+      moverSuave(servoBase, posBase, ang, 15);
+      Serial.print("ACK:BASE_"); Serial.println(ang);
+    } else if (comando == "CMD:SWEEP:BASE") {
+      garantirServosAtivos();
+      for (int k = 0; k < 2; k++) {
+        moverSuave(servoBase, posBase, 130, 15);
+        moverSuave(servoBase, posBase, 50, 15);
+      }
+      moverSuave(servoBase, posBase, 90, 15);
+      Serial.println("ACK:SWEEP_BASE_DONE");
     } else if (comando == "CMD:FACE:FOCUS") {
       expressaoAtual = FACE_FOCADO;
       atualizarDisplay();

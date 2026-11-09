@@ -197,6 +197,12 @@ class SerialCommController:
             cmd = "CMD:WAVE"
         elif any(w in acao_limpa for w in ["pronto", "ready", "prontidão", "acordar"]):
             cmd = "CMD:READY"
+        elif any(w in acao_limpa for w in ["abrir garra", "garra aberta", "open claw", "open"]):
+            cmd = "CMD:GARRA:OPEN"
+        elif any(w in acao_limpa for w in ["fechar garra", "garra fechada", "close claw", "close"]):
+            cmd = "CMD:GARRA:CLOSE"
+        elif any(w in acao_limpa for w in ["girar base", "varrer base", "base", "sweep"]):
+            cmd = "CMD:SWEEP:BASE"
 
         resposta_serial = ""
         if cmd and self.conectar():
