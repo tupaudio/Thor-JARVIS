@@ -8,16 +8,8 @@
  * ESQUEMA DE LIGAÇÃO DOS PINOS (Conexões Atualizadas do Usuário):
  *
  * [ SERVOMOTORES SG90 DO BRAÇO 4-DOF ]:
- * - Pino Digital 0 (D0): Servo da Base (Giro Inferior)
- * - Pino Digital 1 (D1): Servo da Elevação Primária (Ombro)
- * - Pino Digital 4 (D4): Servo da Elevação Secundária (Cotovelo)
- * - Pino Digital 5 (D5): Servo da Garra
- *
- * ⚠️ ATENÇÃO TÉCNICA SOBRE PINOS D0 E D1 NO ARDUINO UNO:
- * - Os pinos D0 e D1 são fisicamente compartilhados com a UART Serial (RX/TX) da USB.
- * - Ao enviar comandos seriais em alta taxa (115200 baud), os servos em D0/D1 podem
- *   apresentar pequeno tremor (jitter) se a USB estiver transmitindo continuamente.
- * - O código abaixo gerencia a attach/detach automática e suave para mitigar esse ruído.
+ * - D2: Base (Giro)   - D3: Ombro   - D4: Cotovelo   - D5: Garra
+ *   (D0/D1 são a Serial USB: só use-os definindo SERVOS_EM_D0_D1, perdendo o controle pelo HUD)
  *
  * [ DISPLAY OLED (SPI 7 Pinos) ]:
  * - VCC  -> 3.3V ou 5V (conforme serigrafia do módulo)
@@ -74,10 +66,23 @@
 #endif
 
 // ==============================================================================
-// 2. PINOS DOS SERVOS (REMAPEADOS CONFORME SOLICITADO PELO USUÁRIO)
+// 2. PINOS DOS SERVOS
 // ==============================================================================
-const int PIN_BASE     = 0; // Giro Inferior (D0)
-const int PIN_OMBRO    = 1; // Elevação Primária / Ombro (D1)
+// ⚠️ D0/D1 SÃO A SERIAL USB (RX/TX) DO ARDUINO UNO. Com servos em D0/D1 o sinal PWM
+// do servo disputa a linha RX com o conversor USB: os comandos vindos do servidor/HUD
+// chegam corrompidos (ou não chegam) e o TX do Arduino faz os servos tremerem.
+// Por isso o padrão é D2/D3 + D4/D5. Só habilite D0/D1 se NÃO precisar de comandos via USB.
+//
+//   Padrão (comandos do HUD funcionam):  Base=D2  Ombro=D3  Cotovelo=D4  Garra=D5
+//   Opcional (SEM controle via USB):      Base=D0  Ombro=D1  Cotovelo=D4  Garra=D5
+// #define SERVOS_EM_D0_D1
+#ifdef SERVOS_EM_D0_D1
+const int PIN_BASE     = 0; // Giro Inferior (D0)  - conflita com USB
+const int PIN_OMBRO    = 1; // Elevação Primária (D1) - conflita com USB
+#else
+const int PIN_BASE     = 2; // Giro Inferior (D2)
+const int PIN_OMBRO    = 3; // Elevação Primária / Ombro (D3)
+#endif
 const int PIN_COTOVELO = 4; // Elevação Secundária / Cotovelo (D4)
 const int PIN_GARRA    = 5; // Garra (D5)
 
@@ -298,6 +303,15 @@ void setup() {
   centroX = telaW / 2;
   centroY = telaH / 2;
 
+  // Teste de tela: moldura + texto por 1,5 s (se isto não aparecer, o problema é fiação/driver)
+  u8g2.firstPage();
+  do {
+    u8g2.drawFrame(0, 0, telaW, telaH);
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(centroX - 18, centroY, "JARVIS");
+  } while (u8g2.nextPage());
+  delay(1500);
+
   // 3. Desenha imediatamente o rosto neutro na tela OLED
   expressaoAtual = FACE_NEUTRO;
   atualizarDisplay();
@@ -356,6 +370,10 @@ void loop() {
       expressaoAtual = FACE_SONO;
       atualizarDisplay();
       Serial.println("ACK:FACE_SLEEP");
+    } else if (comando == "CMD:FACE:FOCUS") {
+      expressaoAtual = FACE_FOCADO;
+      atualizarDisplay();
+      Serial.println("ACK:FACE_FOCUS");
     } else if (comando == "CMD:FACE:NEUTRAL") {
       expressaoAtual = FACE_NEUTRO;
       atualizarDisplay();

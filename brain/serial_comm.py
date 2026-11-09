@@ -56,9 +56,11 @@ class SerialCommController:
                 todas_portas = list(serial.tools.list_ports.comports())
                 
                 # TRAVA DE SEGURANÇA CRÍTICA:
-                # A impressora Creality Ender 3 S1 Pro utiliza conversor serial CH340 em /dev/ttyUSB*.
-                # O Jarvis NUNCA deve tocar em nenhuma porta /dev/ttyUSB* para não enviar lixo no Marlin
-                # nem causar reset por DTR durante impressões 3D ativas.
+                # A impressora (Creality Ender 3 S1 Pro, CH340) NUNCA pode receber dados do Jarvis
+                # (lixo no Marlin / reset por DTR durante a impressão). Por isso a porta da impressora
+                # (OCTOPRINT_SERIAL_PORT, padrão /dev/ttyUSB0) é sempre bloqueada. Um Arduino clone com
+                # CH340 em outro /dev/ttyUSB* só é usado se estiver EXPLICITAMENTE em ARDUINO_PORT.
+                bloqueadas = {os.path.realpath(os.getenv("OCTOPRINT_SERIAL_PORT", "/dev/ttyUSB0"))}
                 portas_usb_reais = []
                 for p in todas_portas:
                     dev_nome = (p.device or "").lower()
@@ -66,23 +68,24 @@ class SerialCommController:
                     hwid = (p.hwid or "").lower()
                     if "bluetooth" in desc or "bthmodem" in hwid:
                         continue
-                    if dev_nome.startswith("/dev/ttyusb"):
+                    if os.path.realpath(p.device or "") in bloqueadas:
                         continue
                     portas_usb_reais.append(p)
 
                 porta_alvo = None
 
-                # 1. Se uma porta específica estiver configurada no .env (ex: /dev/jarvis-arduino ou /dev/ttyACM0)
+                # 1. Porta definida no .env (ex: /dev/serial/by-path/... , /dev/ttyACM0 ou /dev/ttyUSB1)
                 if self.porta_configurada and self.porta_configurada.lower() not in ("none", "", "disabled"):
                     caminho_real = os.path.realpath(self.porta_configurada)
-                    if not caminho_real.startswith("/dev/ttyUSB"):
-                        if os.path.exists(self.porta_configurada):
-                            porta_alvo = self.porta_configurada
-                        else:
-                            for p in portas_usb_reais:
-                                if p.device.upper() == self.porta_configurada.upper():
-                                    porta_alvo = p.device
-                                    break
+                    if caminho_real in bloqueadas:
+                        print(f"⛔ [SERIAL] ARDUINO_PORT={self.porta_configurada} aponta para a porta da impressora. Ignorada.")
+                    elif os.path.exists(self.porta_configurada):
+                        porta_alvo = self.porta_configurada
+                    else:
+                        for p in portas_usb_reais:
+                            if p.device.upper() == self.porta_configurada.upper():
+                                porta_alvo = p.device
+                                break
 
                 # 2. Linux: nós de dispositivo nativos de Arduino CDC-ACM (/dev/ttyACM*)
                 if not porta_alvo:
@@ -190,6 +193,8 @@ class SerialCommController:
             cmd = "CMD:REST"
         elif any(w in acao_limpa for w in ["apontar", "point", "indicar"]):
             cmd = "CMD:POINT"
+        elif any(w in acao_limpa for w in ["positivo", "confirmar", "sim"]):
+            cmd = "CMD:WAVE"
         elif any(w in acao_limpa for w in ["pronto", "ready", "prontidão", "acordar"]):
             cmd = "CMD:READY"
 
@@ -218,6 +223,8 @@ class SerialCommController:
             cmd = "CMD:FACE:LISTEN"
         elif "SONO" in exp:
             cmd = "CMD:FACE:SLEEP"
+        elif "FOCADO" in exp:
+            cmd = "CMD:FACE:FOCUS"
 
         if self.conectar():
             self.enviar_comando(cmd, aguardar_ack=False)
