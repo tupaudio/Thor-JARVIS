@@ -87,10 +87,12 @@ class SerialCommController:
                                 porta_alvo = p.device
                                 break
 
-                # 2. Linux: nós de dispositivo nativos de Arduino CDC-ACM (/dev/ttyACM*)
+                # 2. Linux: nós de dispositivo nativos (/dev/ttyACM*) ou portas USB não-bloqueadas (/dev/ttyUSB1, /dev/ttyUSB2...)
                 if not porta_alvo:
                     import glob
-                    candidatas = sorted(glob.glob("/dev/ttyACM*"))
+                    candidatas_acm = sorted(glob.glob("/dev/ttyACM*"))
+                    candidatas_usb = [p for p in sorted(glob.glob("/dev/ttyUSB*")) if os.path.realpath(p) not in bloqueadas]
+                    candidatas = candidatas_acm + candidatas_usb
                     if candidatas:
                         porta_alvo = candidatas[0]
 
