@@ -43,33 +43,34 @@
 #include <Servo.h>
 
 // ==============================================================================
-// 1. SELEÇÃO DO MODELO E RESOLUÇÃO DO DISPLAY OLED 1.5" 128x128 SPI
+// 1. SELEÇÃO DO MODELO E RESOLUÇÃO DO DISPLAY OLED 1.5" 128x128 SPI (SH1107)
 // ==============================================================================
-// O display oficial é 1.5" 128x128 SPI (Driver SH1107 / SSD1327).
-// A opção A (SH1107 padrão 128x128) está ATIVADA por padrão.
+// O chip confirmado no verso é o SH1107 com 5V nos terminais V e G.
+// A variante SEEED é a que ativa a bomba de carga (Charge Pump) e contraste
+// nos módulos OLED 1.5" chineses GME128128 e genéricos de 7 pinos.
 
-// OPÇÃO A: OLED 1.5" 128x128 SH1107 SPI (GME128128-01 / Genérico 7 pinos) - PADRÃO OFICIAL
-#define OLED_128X128_SH1107_SPI
+// OPÇÃO A: OLED 1.5" 128x128 SH1107 SEEED Hardware SPI (Padrão Ativo para módulos 1.5" SH1107)
+#define OLED_128X128_SH1107_SEEED_HW_SPI
 
-// OPÇÃO B: OLED 1.5" 128x128 SH1107 SEEED SPI (Use se a imagem aparecer com colunas deslocadas ou faixas)
-// #define OLED_128X128_SH1107_SEEED_SPI
+// OPÇÃO B: OLED 1.5" 128x128 SH1107 Padrão Hardware SPI
+// #define OLED_128X128_SH1107_HW_SPI
 
-// OPÇÃO C: OLED 1.5" 128x128 SSD1327 SPI (Módulos tipo Waveshare 1.5" 16 níveis de cinza)
+// OPÇÃO C: OLED 1.5" 128x128 SH1107 SEEED Software SPI (Imune a conflitos de pino SS/SPI)
+// #define OLED_128X128_SH1107_SEEED_SW_SPI
+
+// OPÇÃO D: OLED 1.5" 128x128 SSD1327 SPI (Módulos tipo Waveshare 1.5" 16 níveis de cinza)
 // #define OLED_128X128_SSD1327_SPI
 
-// OPÇÃO D: OLED 128x64 SSD1306 SPI 0.96" (Caso use módulo compacto alternativo)
-// #define OLED_128X64_SSD1306_SPI
-
-#if defined(OLED_128X128_SH1107_SPI)
-  U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-#elif defined(OLED_128X128_SH1107_SEEED_SPI)
+#if defined(OLED_128X128_SH1107_SEEED_HW_SPI)
   U8G2_SH1107_SEEED_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#elif defined(OLED_128X128_SH1107_HW_SPI)
+  U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#elif defined(OLED_128X128_SH1107_SEEED_SW_SPI)
+  U8G2_SH1107_SEEED_128X128_1_4W_SW_SPI u8g2(U8G2_R0, /* clk=*/ 13, /* data=*/ 11, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 #elif defined(OLED_128X128_SSD1327_SPI)
   U8G2_SSD1327_WS_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-#elif defined(OLED_128X64_SSD1306_SPI)
-  U8G2_SSD1306_128X64_NONAME_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 #else
-  U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+  U8G2_SH1107_SEEED_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 #endif
 
 // ==============================================================================
@@ -279,14 +280,30 @@ void setup() {
   // Inicialização serial em 115200 baud
   Serial.begin(115200);
 
-  // Inicializa display U8g2 e detecta dimensão real
+  // 1. Pulso de Reset por hardware no display OLED (Pino 8)
+  pinMode(8, OUTPUT);
+  pinMode(10, OUTPUT); // CS como OUTPUT garante modo Master SPI no ATmega328P
+  digitalWrite(8, LOW);
+  delay(30);
+  digitalWrite(8, HIGH);
+  delay(60);
+
+  // 2. Inicializa display U8g2 e força desativação do sleep + contraste máximo
   u8g2.begin();
+  u8g2.setPowerSave(0);   // Acorda o display SH1107 (Display ON)
+  u8g2.setContrast(255);  // Brilho máximo do OLED
+  
   telaW = u8g2.getDisplayWidth();
   telaH = u8g2.getDisplayHeight();
   centroX = telaW / 2;
   centroY = telaH / 2;
 
-  // Ativa servos nos novos pinos D0, D1, D4, D5
+  // 3. Desenha imediatamente o rosto neutro na tela OLED
+  expressaoAtual = FACE_NEUTRO;
+  atualizarDisplay();
+  Serial.println("OLED_ONLINE_OK");
+
+  // 4. Ativa servos nos novos pinos D0, D1, D4, D5 e assume postura de prontidão
   garantirServosAtivos();
   posturaProntidao();
 
