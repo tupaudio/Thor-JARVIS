@@ -157,29 +157,6 @@ void atualizarDisplay() {
     }
   } while (u8g2.nextPage());
 }
-  do {
-    switch (expressaoAtual) {
-      case FACE_NEUTRO:
-        desenharOlhos((telaH <= 64 ? 18 : 28), (telaH <= 64 ? 4 : 8), 0, 0);
-        break;
-      case FACE_PISCANDO:
-        desenharOlhos((telaH <= 64 ? 3 : 4), 1, 0, 0);
-        break;
-      case FACE_OUVINDO:
-        desenharFaceOuvindo();
-        break;
-      case FACE_FELIZ:
-        desenharFaceFeliz();
-        break;
-      case FACE_FOCADO:
-        desenharOlhos((telaH <= 64 ? 14 : 20), (telaH <= 64 ? 3 : 4), 3, -2);
-        break;
-      case FACE_SONO:
-        desenharFaceSono();
-        break;
-    }
-  } while (u8g2.nextPage());
-}
 
 // ==============================================================================
 // 4. CONTROLE SUAVE DOS SERVOMOTORES
