@@ -1148,15 +1148,22 @@ HTML_STARK_HUD = r"""<!DOCTYPE html>
     if (video.readyState < 2) return;
     enviandoFrame = true;
     const canvas = document.getElementById('hiddenCanvas');
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 360;
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    let w = video.videoWidth || 640;
+    let h = video.videoHeight || 360;
+    const maxDim = 800;
+    if (w > maxDim) {
+      h = Math.round(h * (maxDim / w));
+      w = maxDim;
+    }
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d').drawImage(video, 0, 0, w, h);
     canvas.toBlob(async (blob) => {
       if (blob) {
         try { await fetch('/api/camera/frame', { method: 'POST', headers: {'Content-Type': 'image/jpeg'}, body: blob }); } catch (e) {}
       }
       enviandoFrame = false;
-    }, 'image/jpeg', 0.78);
+    }, 'image/jpeg', 0.68);
   }
 
   aplicarTemaPersona({id: 'JARVIS', nome: 'J.A.R.V.I.S.', icone: '🎩'});
@@ -1394,6 +1401,7 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(jpg)).encode() + b"\r\n\r\n")
                 self.wfile.write(jpg)
                 self.wfile.write(b"\r\n")
+                self.wfile.flush()
         except (OSError, ssl.SSLError):
             pass
         finally:
