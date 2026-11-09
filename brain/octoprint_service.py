@@ -113,14 +113,15 @@ class OctoPrintService:
         print("🖨️ [OCTOPRINT] Monitoramento proativo com fotos no Telegram ativado.")
 
     def _obter_foto_camera(self):
-        """Tenta obter o JPEG mais recente da câmera remota do iPhone ou fallback local."""
+        """Tenta obter o JPEG mais recente da câmera remota do iPhone ou fallback local recente."""
         try:
             from camera_manager import camera_manager
             jpg = camera_manager.obter_ultimo_jpeg_remoto(max_age_sec=30.0)
             if jpg:
                 return jpg
-            if os.path.exists(camera_manager.default_photo_path):
-                with open(camera_manager.default_photo_path, "rb") as f:
+            p = camera_manager.default_photo_path
+            if os.path.exists(p) and (time.time() - os.path.getmtime(p) < 60.0):
+                with open(p, "rb") as f:
                     return f.read()
         except Exception:
             pass
@@ -140,6 +141,7 @@ class OctoPrintService:
         imprimindo_anterior = False
         ultimo_arquivo = ""
         marcos_notificados = set()
+        falhas_http = 0
 
         while True:
             try:
@@ -149,7 +151,11 @@ class OctoPrintService:
 
                 try:
                     job = self._get("/api/job")
+                    falhas_http = 0
                 except Exception:
+                    falhas_http += 1
+                    if falhas_http == 4 and imprimindo_anterior:
+                        self._notificar_telegram("⚠️ *Alerta da Impressora:* OctoPrint inacessível durante impressão em andamento!", com_foto=False)
                     continue
 
                 estado = job.get("state", "")
@@ -164,17 +170,31 @@ class OctoPrintService:
                     ultimo_arquivo = nome_arquivo
                     marcos_notificados.clear()
 
-                # 1. Início de Impressão
+                # 1. Início de Impressão (ou retomada de monitoramento com job já rodando)
                 if imprimindo_agora and not imprimindo_anterior:
                     imprimindo_anterior = True
-                    marcos_notificados.clear()
                     tempo_est = f"~{int(restante // 60)} min" if restante else "calculando..."
-                    msg = (
-                        f"🚀 *Impressão Iniciada na Ender 3 S1 Pro!*\n"
-                        f"📁 *Arquivo:* `{nome_arquivo}`\n"
-                        f"⏱️ *Estimativa:* {tempo_est}\n"
-                        f"Status: {estado}"
-                    )
+                    
+                    if pct is not None and pct >= 5.0:
+                        # Jarvis reiniciou com impressão já adiantada: marca marcos já passados
+                        for m in (25, 50, 75):
+                            if pct >= m:
+                                marcos_notificados.add(m)
+                        msg = (
+                            f"🔄 *Monitoramento Reconectado à Impressão!*\n"
+                            f"📁 *Arquivo:* `{nome_arquivo}`\n"
+                            f"📊 *Progresso Atual:* {pct:.1f}%\n"
+                            f"⏱️ *Restante:* {tempo_est}\n"
+                            f"Estado: {estado}"
+                        )
+                    else:
+                        marcos_notificados.clear()
+                        msg = (
+                            f"🚀 *Impressão Iniciada na Ender 3 S1 Pro!*\n"
+                            f"📁 *Arquivo:* `{nome_arquivo}`\n"
+                            f"⏱️ *Estimativa:* {tempo_est}\n"
+                            f"Status: {estado}"
+                        )
                     self._notificar_telegram(msg, com_foto=True)
 
                 # 2. Marcos de Progresso (25%, 50%, 75%)
@@ -201,30 +221,32 @@ class OctoPrintService:
                             )
                             self._notificar_telegram(msg, com_foto=True)
 
-                # 3. Impressão Concluída (transição para Operational/Done ou 100%)
-                elif imprimindo_anterior and (estado in ("Operational", "Done") or (pct is not None and pct >= 99.8)):
+                # 3. Término da Impressão (Distinção estrita entre Conclusão 100% vs Cancelamento/Interrupção)
+                elif imprimindo_anterior and not imprimindo_agora:
                     imprimindo_anterior = False
-                    if 100 not in marcos_notificados:
-                        marcos_notificados.add(100)
-                        tempo_total = prog.get("printTime")
-                        duracao = f"~{int(tempo_total // 60)} min" if tempo_total else "concluído"
+                    concluida_com_sucesso = (pct is not None and pct >= 99.8) or (estado == "Done")
+
+                    if concluida_com_sucesso:
+                        if 100 not in marcos_notificados:
+                            marcos_notificados.add(100)
+                            tempo_total = prog.get("printTime")
+                            duracao = f"~{int(tempo_total // 60)} min" if tempo_total else "concluído"
+                            msg = (
+                                f"🎉 *Impressão Concluída com Sucesso!*\n"
+                                f"📁 *Arquivo:* `{nome_arquivo}`\n"
+                                f"⏱️ *Duração:* {duracao}\n"
+                                f"A mesa começará a esfriar. Parabéns pela peça, senhor!"
+                            )
+                            self._notificar_telegram(msg, com_foto=True)
+                    else:
+                        pct_str = f"{pct:.1f}%" if pct is not None else "indefinido"
                         msg = (
-                            f"🎉 *Impressão Concluída com Sucesso!*\n"
+                            f"⚠️ *Alerta da Impressora: Impressão Interrompida / Cancelada!*\n"
                             f"📁 *Arquivo:* `{nome_arquivo}`\n"
-                            f"⏱️ *Duração:* {duracao}\n"
-                            f"A mesa começará a esfriar. Parabéns pela peça, senhor!"
+                            f"📊 *Progresso atingido:* {pct_str}\n"
+                            f"Estado final: *{estado}*"
                         )
                         self._notificar_telegram(msg, com_foto=True)
-
-                # 4. Falha / Cancelamento
-                elif imprimindo_anterior and estado in ("Error", "Cancelling", "Cancelled", "Offline"):
-                    imprimindo_anterior = False
-                    msg = (
-                        f"⚠️ *Alerta da Impressora: Impressão Interrompida!*\n"
-                        f"📁 *Arquivo:* `{nome_arquivo}`\n"
-                        f"Estado: *{estado}*"
-                    )
-                    self._notificar_telegram(msg, com_foto=True)
 
             except Exception as e:
                 time.sleep(5)

@@ -47,7 +47,14 @@ class TelegramBotService:
             resp = self.session.get(f"{self.base_url}/getMe", timeout=10)
             return resp.json()
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            return {"ok": False, "error": self._limpar_erro(e)}
+
+    def _limpar_erro(self, e: Exception) -> str:
+        """Remove o token do bot de strings de erro para evitar vazamento em logs e retornos ao LLM."""
+        msg = str(e)
+        if self.token:
+            msg = msg.replace(self.token, "[TOKEN_REDACTED]")
+        return msg
 
     def salvar_chat_id(self, chat_id: str):
         """Registra o Chat ID do dono no .env (escrita atômica)."""
@@ -94,7 +101,7 @@ class TelegramBotService:
             else:
                 return f"Falha ao enviar mensagem no Telegram: {res_json.get('description')}"
         except Exception as e:
-            return f"Erro de conexão ao enviar mensagem no Telegram: {e}"
+            return f"Erro de conexão ao enviar mensagem no Telegram: {self._limpar_erro(e)}"
 
     def enviar_audio_voz(self, caminho_arquivo: str, chat_id: str = None, legenda: str = "") -> bool:
         """
@@ -117,7 +124,7 @@ class TelegramBotService:
                 resp = self.session.post(url, data=data, files=files, timeout=30)
                 return resp.json().get("ok", False)
         except Exception as e:
-            print(f"⚠️ [TELEGRAM] Erro ao enviar áudio de voz: {e}")
+            print(f"⚠️ [TELEGRAM] Erro ao enviar áudio de voz: {self._limpar_erro(e)}")
             return False
 
     def enviar_foto(self, foto, chat_id: str = None, legenda: str = "") -> bool:
@@ -148,7 +155,7 @@ class TelegramBotService:
             resp = self.session.post(url, data=data, files=files, timeout=30)
             return resp.json().get("ok", False)
         except Exception as e:
-            print(f"⚠️ [TELEGRAM] Erro ao enviar foto: {e}")
+            print(f"⚠️ [TELEGRAM] Erro ao enviar foto: {self._limpar_erro(e)}")
             return False
 
     def sintetizar_audio_resposta(self, texto: str) -> str:

@@ -159,7 +159,7 @@ class SentinelService:
                             f""
                             f"📸 Segue a captura de segurança da câmera do dock."
                         )
-                        telegram_service.enviar_foto(caminho_arquivo=self.alert_path, legenda=legenda)
+                        telegram_service.enviar_foto(self.alert_path, legenda=legenda)
                     except Exception as e:
                         print(f"⚠️ [SENTINELA] Erro ao avisar Telegram: {e}")
 

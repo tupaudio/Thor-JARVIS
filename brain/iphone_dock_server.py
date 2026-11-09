@@ -1227,6 +1227,10 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
         if isinstance(self.request, ssl.SSLSocket):
             self.request.settimeout(10)
             self.request.do_handshake()          # handshake aqui, na thread da conexão (não no accept)
+        try:
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except Exception:
+            pass
         super().setup()
 
     def log_message(self, format, *args):
@@ -1381,26 +1385,23 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
             self.close_connection = True
             self.send_response(200)
             self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0")
             self.send_header("Pragma", "no-cache")
             self.send_header("Connection", "close")
             self.end_headers()
             seq, ocioso, ultimo_envio = -1, 0.0, 0.0
             while ocioso < 60:
+                espera = 0.12 - (time.monotonic() - ultimo_envio)   # teto de ~8 fps por cliente
+                if espera > 0:
+                    time.sleep(espera)
                 seq, jpg = camera_manager.aguardar_frame_novo(seq, timeout=5.0)
                 if jpg is None:
                     ocioso += 5.0
                     continue
                 ocioso = 0.0
-                espera = 0.12 - (time.monotonic() - ultimo_envio)   # teto de ~8 fps por cliente
-                if espera > 0:
-                    time.sleep(espera)
                 ultimo_envio = time.monotonic()
-                self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(jpg)).encode() + b"\r\n\r\n")
-                self.wfile.write(jpg)
-                self.wfile.write(b"\r\n")
+                buf = b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(jpg)).encode() + b"\r\n\r\n" + jpg + b"\r\n"
+                self.wfile.write(buf)
                 self.wfile.flush()
         except (OSError, ssl.SSLError):
             pass
@@ -1409,7 +1410,6 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Api-Key, Range")
         self.end_headers()
@@ -1417,8 +1417,13 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
     # ---- GET
     def do_GET(self):
         path = urlparse(self.path).path
+        LOOPBACK_IPS = ("127.0.0.1", "::1", "localhost")
 
         if path in ("/go", "/pair", "/entrar"):
+            # Apenas acessível a partir do terminal/loopback local do servidor
+            if self.client_address[0] not in LOOPBACK_IPS:
+                self._responder(404)
+                return
             ip_local = obter_ip_local()
             https_port = int(os.getenv("DOCK_HTTPS_PORT", "8443"))
             dest = f"https://{ip_local}:{https_port}/?token={DOCK_TOKEN}"
@@ -1446,18 +1451,23 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
             return
 
         if path.startswith("/camera/"):
-            # Rotas públicas de câmera (sem token) para OctoPrint, Home Assistant e fatiadores
+            # OctoPrint local consome via loopback sem token; acessos remotos exigem token (?token= ou cookie)
+            if self.client_address[0] not in LOOPBACK_IPS and not self._exigir_auth(permitir_query=True):
+                return
+
             if path == "/camera/snapshot.jpg":
                 from camera_manager import camera_manager
                 jpg = camera_manager.obter_ultimo_jpeg_remoto()
                 if not jpg:
                     try:
-                        with open(camera_manager.default_photo_path, "rb") as f:
-                            jpg = f.read()
+                        p = camera_manager.default_photo_path
+                        if os.path.exists(p) and (time.time() - os.path.getmtime(p) < 60):
+                            with open(p, "rb") as f:
+                                jpg = f.read()
                     except Exception:
                         pass
                 if jpg:
-                    self._responder(200, jpg, "image/jpeg", [("Access-Control-Allow-Origin", "*")])
+                    self._responder(200, jpg, "image/jpeg")
                 else:
                     self._responder(503)
                 return

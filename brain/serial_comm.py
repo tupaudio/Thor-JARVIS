@@ -55,33 +55,36 @@ class SerialCommController:
 
                 todas_portas = list(serial.tools.list_ports.comports())
                 
-                # Ignora portas Bluetooth/virtuais (rfcomm) e portas reservadas para 3D printer
+                # TRAVA DE SEGURANÇA CRÍTICA:
+                # A impressora Creality Ender 3 S1 Pro utiliza conversor serial CH340 em /dev/ttyUSB*.
+                # O Jarvis NUNCA deve tocar em nenhuma porta /dev/ttyUSB* para não enviar lixo no Marlin
+                # nem causar reset por DTR durante impressões 3D ativas.
                 portas_usb_reais = []
                 for p in todas_portas:
+                    dev_nome = (p.device or "").lower()
                     desc = (p.description or "").lower()
                     hwid = (p.hwid or "").lower()
-                    if "bluetooth" in desc or "bthmodem" in hwid or p.device == "/dev/ttyUSB0":
+                    if "bluetooth" in desc or "bthmodem" in hwid:
+                        continue
+                    if dev_nome.startswith("/dev/ttyusb"):
                         continue
                     portas_usb_reais.append(p)
 
                 porta_alvo = None
 
-                # 1. Procura portas que sejam reconhecidamente Arduino ou conversores USB-Serial
-                for p in portas_usb_reais:
-                    desc = (p.description or "").lower()
-                    hwid = (p.hwid or "").lower()
-                    if any(k in desc or k in hwid for k in ["arduino", "ch340", "ch341", "cp210", "ftdi", "usb-serial", "usb serial"]):
-                        porta_alvo = p.device
-                        break
+                # 1. Se uma porta específica estiver configurada no .env (ex: /dev/jarvis-arduino ou /dev/ttyACM0)
+                if self.porta_configurada and self.porta_configurada.lower() not in ("none", "", "disabled"):
+                    caminho_real = os.path.realpath(self.porta_configurada)
+                    if not caminho_real.startswith("/dev/ttyUSB"):
+                        if os.path.exists(self.porta_configurada):
+                            porta_alvo = self.porta_configurada
+                        else:
+                            for p in portas_usb_reais:
+                                if p.device.upper() == self.porta_configurada.upper():
+                                    porta_alvo = p.device
+                                    break
 
-                # 2. Se a porta configurada no .env for uma porta USB real presente
-                if not porta_alvo and self.porta_configurada:
-                    for p in portas_usb_reais:
-                        if p.device.upper() == self.porta_configurada.upper():
-                            porta_alvo = p.device
-                            break
-
-                # 3. Linux: nós de dispositivo do Arduino Uno (ttyACM*)
+                # 2. Linux: nós de dispositivo nativos de Arduino CDC-ACM (/dev/ttyACM*)
                 if not porta_alvo:
                     import glob
                     candidatas = sorted(glob.glob("/dev/ttyACM*"))

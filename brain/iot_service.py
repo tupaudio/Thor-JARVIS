@@ -104,6 +104,20 @@ class IoTService:
         dev_id = disp.get("device_id", "")
         local_key = disp.get("local_key", "")
 
+        # TRAVA CENTRAL DE SEGURANÇA FÍSICA:
+        # Se for comando de desligar e o dispositivo for crítico (ex: tomada da impressora 3D),
+        # verifica se a impressora está em operação antes de qualquer protocolo (Tuya, Tasmota, OctoPrint, etc.)
+        e_critico = disp.get("critico", False) or "impressora" in chave.lower() or "ender" in chave.lower() or proto == "octoprint"
+        if comando == "desligar" and e_critico:
+            try:
+                from octoprint_service import octoprint_service
+                if octoprint_service.esta_imprimindo():   # fail-closed (devolve True em caso de erro na checagem)
+                    print(f"🛑 [IOT TRAVA DE SEGURANÇA] Desligamento de '{chave}' bloqueado: Impressão 3D ativa!")
+                    return False
+            except Exception as e:
+                print(f"🛑 [IOT TRAVA DE SEGURANÇA] Falha ao verificar estado da impressora: {e}. Bloqueando desligamento.")
+                return False
+
         # Tuya / Smart Life
         if proto == "tuya" and ip and dev_id and local_key:
             try:
@@ -206,20 +220,31 @@ class IoTService:
             nome = disp.get("nome", chave)
 
             if acao_limpa in ["ligar", "acender", "ativar"]:
-                disp["status"] = "ligado"
-                self._executar_dispositivo(chave, "ligar")
-                alterados.append(f"{nome} (ligado)")
+                ok = self._executar_dispositivo(chave, "ligar")
+                if ok:
+                    disp["status"] = "ligado"
+                    alterados.append(f"{nome} (ligado)")
+                else:
+                    alterados.append(f"{nome} (falha ao ligar)")
 
             elif acao_limpa in ["desligar", "apagar", "desativar"]:
-                disp["status"] = "desligado"
-                self._executar_dispositivo(chave, "desligar")
-                alterados.append(f"{nome} (desligado)")
+                ok = self._executar_dispositivo(chave, "desligar")
+                if ok:
+                    disp["status"] = "desligado"
+                    alterados.append(f"{nome} (desligado)")
+                else:
+                    disp["status"] = "ligado"
+                    alterados.append(f"{nome} (mantido ligado: impressão 3D em andamento)")
 
             elif acao_limpa in ["alternar", "toggle"]:
                 novo = "desligado" if disp.get("status") == "ligado" else "ligado"
-                disp["status"] = novo
-                self._executar_dispositivo(chave, novo)
-                alterados.append(f"{nome} ({novo})")
+                ok = self._executar_dispositivo(chave, novo)
+                if ok:
+                    disp["status"] = novo
+                    alterados.append(f"{nome} ({novo})")
+                else:
+                    disp["status"] = "ligado"
+                    alterados.append(f"{nome} (mantido ligado: impressão 3D em andamento)")
 
             elif acao_limpa in ["brilho", "intensidade"]:
                 try:

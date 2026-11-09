@@ -43,10 +43,23 @@ class _Job:
     cancelado: bool = field(default=False, compare=False)
 
 
+def _obter_status_code(e: Exception):
+    code = getattr(e, "code", None)
+    if isinstance(code, int):
+        return code
+    status_code = getattr(e, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    return None
+
+
 def _msg_erro_transitorio(e: Exception) -> bool:
+    code = _obter_status_code(e)
+    if code in (429, 500, 502, 503, 504):
+        return True
     t = str(e).lower()
-    return any(x in t for x in ("503", "unavailable", "high demand", "429", "resource_exhausted",
-                                "timed out", "timeout", "deadline", "connection", "temporarily", "500", "502", "504"))
+    return any(x in t for x in ("unavailable", "high demand", "resource_exhausted",
+                                "timed out", "timeout", "deadline", "connection reset", "temporarily"))
 
 
 def _cliente_fechado(e: Exception) -> bool:
@@ -56,7 +69,9 @@ def _cliente_fechado(e: Exception) -> bool:
 
 def _historico_invalido(e: Exception) -> bool:
     t = str(e).lower()
-    return "function call turn" in t or "function response" in t or "invalid_argument" in t or "400" in t
+    e_desalinhamento = "function call turn" in t or "function response" in t or "please provide a function response" in t
+    code = _obter_status_code(e)
+    return e_desalinhamento or (code == 400 and ("invalid_argument" in t or "history" in t or "contents" in t))
 
 
 class GeminiSession:
