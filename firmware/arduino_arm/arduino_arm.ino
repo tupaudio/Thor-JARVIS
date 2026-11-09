@@ -47,10 +47,9 @@
 // Fiação Real Confirmada pelo Usuário:
 // SCL/CLK -> D13 | SDA/DIN -> D11 | CS -> D10 | DC -> D9 | RST -> D8 | VCC/GND -> D13
 //
-// Driver do Display OLED 1.5" 128x128 SPI:
-// Controlador comprovado: SH1107 128x128 SPI 4-Wire (U8g2).
-// Rotação: U8G2_R2 inverte 180 graus para orientar a tela corretamente no suporte físico.
-U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R2, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+// Driver oficial com offset zero (PIMORONI layout para módulos 1.5" SH1107 de 7 pinos):
+// Elimina o deslocamento horizontal de 32px e o espelhamento de texto (letras invertidas).
+U8G2_SH1107_PIMORONI_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 
 // ==============================================================================
 // 2. PINOS DOS SERVOS
