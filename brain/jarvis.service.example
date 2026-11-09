@@ -1,10 +1,13 @@
-# /etc/systemd/system/jarvis.service   (ajuste User e caminhos)
+# /etc/systemd/system/jarvis.service (ajuste User e caminhos se necessário)
 [Unit]
-Description=J.A.R.V.I.S. (servidor de bancada)
+Description=J.A.R.V.I.S. (servidor de bancada e controle 3D)
 After=network-online.target ollama.service
 Wants=network-online.target
 
 [Service]
+Type=notify
+WatchdogSec=60
+NotifyAccess=main
 User=thor
 WorkingDirectory=/home/thor/projetos/Jarvis/brain
 EnvironmentFile=/home/thor/projetos/Jarvis/brain/.env
@@ -12,9 +15,14 @@ ExecStart=/home/thor/projetos/Jarvis/.venv/bin/python -u main.py
 Restart=on-failure
 RestartSec=5
 SupplementaryGroups=dialout
-# Hardening básico
+
+# Hardening e limites
 NoNewPrivileges=true
 PrivateTmp=true
+ReadWritePaths=/home/thor/projetos/Jarvis/brain /home/thor/Downloads
+MemoryMax=1500M
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

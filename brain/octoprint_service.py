@@ -73,6 +73,26 @@ class OctoPrintService:
         except Exception as e:
             return f"Não consegui consultar o OctoPrint (impressora desligada ou offline?): {e}"
 
+    def pausar_impressao(self) -> tuple[bool, str]:
+        """Alterna pausa/retomada do trabalho de impressão atual."""
+        if not self.is_configured():
+            return False, "OctoPrint não configurado no .env."
+        try:
+            self._post("/api/job", {"command": "pause", "action": "toggle"})
+            return True, "Comando de alternar pausa/retomada enviado à impressora."
+        except Exception as e:
+            return False, f"Falha ao pausar/retomar impressão: {e}"
+
+    def cancelar_impressao(self) -> tuple[bool, str]:
+        """Cancela o trabalho de impressão ativo."""
+        if not self.is_configured():
+            return False, "OctoPrint não configurado no .env."
+        try:
+            self._post("/api/job", {"command": "cancel"})
+            return True, "Comando de cancelamento executado com sucesso na Ender 3."
+        except Exception as e:
+            return False, f"Falha ao cancelar impressão: {e}"
+
     def ligar_tomada(self) -> bool:
         """Liga a tomada via plugin PSU Control."""
         try:

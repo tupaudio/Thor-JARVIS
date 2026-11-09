@@ -20,6 +20,27 @@ load_dotenv(ENV_PATH)
 _encerrar = threading.Event()
 
 
+def sd_notify(msg: str):
+    """Notifica o systemd (READY=1, WATCHDOG=1, STOPPING=1) via NOTIFY_SOCKET."""
+    addr = os.environ.get("NOTIFY_SOCKET")
+    if not addr:
+        return
+    import socket
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as s:
+            s.connect("\0" + addr[1:] if addr[0] == "@" else addr)
+            s.sendall(msg.encode("utf-8"))
+    except Exception:
+        pass
+
+
+def _loop_watchdog():
+    """Envia batimentos cardíacos a cada 20s para o systemd (WatchdogSec=60)."""
+    while not _encerrar.is_set():
+        sd_notify("WATCHDOG=1")
+        _encerrar.wait(20)
+
+
 def _sinal(signum, _frame):
     print(f"\n🛑 [JARVIS] Sinal {signum} recebido, encerrando...")
     _encerrar.set()
@@ -78,6 +99,10 @@ def main():
     hardware.atualizar_tela(titulo="JARVIS ONLINE", subtitulo="Aguardando comandos...", icone="⚡")
     voice_engine.speak("Sistemas online e operantes, senhor. Como posso auxiliá-lo?")
 
+    # Notifica systemd que a inicialização foi concluída com sucesso e inicia batimentos watchdog
+    sd_notify("READY=1")
+    threading.Thread(target=_loop_watchdog, daemon=True, name="SystemdWatchdog").start()
+
     try:
         if sys.stdin is not None and sys.stdin.isatty():
             _loop_terminal()
@@ -85,6 +110,7 @@ def main():
             print("ℹ️  Sem terminal interativo (modo serviço). Aguardando eventos do HUD e do Telegram.")
             _encerrar.wait()
     finally:
+        sd_notify("STOPPING=1")
         print("Encerrando J.A.R.V.I.S....")
         try:
             hardware.mover_braco("repouso")
