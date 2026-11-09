@@ -222,7 +222,25 @@ class GeminiSession:
             if job.cancelado:           # o chamador já desistiu: não gasta chamada de API
                 continue
             try:
-                job.futuro.set_result(self._enviar_com_recuperacao(job.texto))
+                texto_envio = job.texto
+                # 1. Recuperação RAG da Memória de Longo Prazo
+                try:
+                    from memory_service import memory_service
+                    ctx = memory_service.obter_contexto_relevante(job.texto)
+                    if ctx:
+                        texto_envio = f"{ctx}\n\nInstrução atual do usuário: {job.texto}"
+                except Exception:
+                    pass
+
+                resposta = self._enviar_com_recuperacao(texto_envio)
+                job.futuro.set_result(resposta)
+
+                # 2. Reflexão e assimilação de fatos/preferências (estilo OpenJarvis)
+                try:
+                    from memory_service import memory_service
+                    memory_service.extrair_e_persistir_fatos(job.texto, resposta)
+                except Exception:
+                    pass
             except Exception as e:      # nunca deixar o worker morrer
                 if not job.futuro.done():
                     job.futuro.set_result(f"Erro interno na sessão do Gemini: {e}")

@@ -87,6 +87,34 @@ _falhas = {}                      # ip -> [timestamps]
 _falhas_lock = threading.Lock()
 
 
+def _gerar_cookie_sessao(duracao_segundos: int = 7 * 86400) -> str:
+    """Gera um token de sessão assinado com timestamp de expiração (Pendência 4 / Ephemeral Key)."""
+    exp = int(time.time() + duracao_segundos)
+    assinatura = hmac.new(DOCK_TOKEN.encode(), f"dock-session:{exp}".encode(), hashlib.sha256).hexdigest()
+    return f"{exp}.{assinatura}"
+
+
+def _validar_cookie_sessao(valor: str) -> bool:
+    """Valida se o cookie de sessão é autêntico e ainda não expirou."""
+    if not valor:
+        return False
+    if _igual(valor, _COOKIE_VALOR):  # compatibilidade com cookie legado
+        return True
+    if "." not in valor:
+        return False
+    partes = valor.split(".", 1)
+    if len(partes) != 2:
+        return False
+    try:
+        exp = int(partes[0])
+    except ValueError:
+        return False
+    if time.time() > exp:
+        return False  # expirado
+    esperado = hmac.new(DOCK_TOKEN.encode(), f"dock-session:{exp}".encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(partes[1], esperado)
+
+
 def _bloqueado(ip: str) -> bool:
     agora = time.time()
     with _falhas_lock:
@@ -1300,7 +1328,7 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
         if tok and _igual(tok, DOCK_TOKEN):
             return True
         ck = self._cookie(_COOKIE_NOME)
-        if ck and _igual(ck, _COOKIE_VALOR):
+        if ck and _validar_cookie_sessao(ck):
             return True
         if permitir_query:
             q = parse_qs(urlparse(self.path).query).get("token", [""])[0]
@@ -1447,8 +1475,9 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
                     self._json({"ok": False, "error": "Muitas tentativas."}, 429)
                     return
                 if _igual(q, DOCK_TOKEN):
-                    flags = "Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000" + ("; Secure" if self._https else "")
-                    self._responder(302, b"", None, [("Location", "/"), ("Set-Cookie", f"{_COOKIE_NOME}={_COOKIE_VALOR}; {flags}")])
+                    flags = "Path=/; HttpOnly; SameSite=Strict; Max-Age=604800" + ("; Secure" if self._https else "")
+                    sessao_cookie = _gerar_cookie_sessao()
+                    self._responder(302, b"", None, [("Location", "/"), ("Set-Cookie", f"{_COOKIE_NOME}={sessao_cookie}; {flags}")])
                     return
                 _registrar_falha(self.client_address[0])
             if self._credencial_valida():

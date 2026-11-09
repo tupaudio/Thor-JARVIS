@@ -198,6 +198,26 @@ def tool_consultar_telemetria_traces() -> dict:
         return {"erro": str(e)}
 
 
+def tool_salvar_memoria(chave: str, informacao: str, categoria: str = "geral") -> dict:
+    """Grava um fato ou preferência na memória de longo prazo (SQLite FTS5)."""
+    try:
+        from memory_service import memory_service
+        ok = memory_service.salvar_memoria(chave, informacao, categoria=categoria, origem="mcp_client")
+        return {"sucesso": ok, "chave": chave}
+    except Exception as e:
+        return {"sucesso": False, "erro": str(e)}
+
+
+def tool_consultar_memoria(termo_busca: str, limite: int = 5) -> dict:
+    """Consulta memórias episódicas do JARVIS usando busca FTS5 com ranking BM25."""
+    try:
+        from memory_service import memory_service
+        mems = memory_service.buscar_memorias(termo_busca, limite=limite)
+        return {"total": len(mems), "resultados": mems}
+    except Exception as e:
+        return {"total": 0, "erro": str(e)}
+
+
 # Mapeamento de definições MCP
 MCP_TOOLS = [
     {
@@ -266,6 +286,33 @@ MCP_TOOLS = [
         "description": "Consulta a latência média, erros e contagem de requisições por modelo e rota (Traces SQLite).",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
         "fn": tool_consultar_telemetria_traces
+    },
+    {
+        "name": "salvar_memoria",
+        "description": "Grava um fato importante, rotina ou preferência na memória de longo prazo (SQLite FTS5).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chave": {"type": "string", "description": "Identificador curto do fato (ex: filamento_favorito, projeto_satelite)"},
+                "informacao": {"type": "string", "description": "Conteúdo factual detalhado a guardar"},
+                "categoria": {"type": "string", "description": "Categoria (fato, preferencia, projeto_3d, rotina, pessoal)"}
+            },
+            "required": ["chave", "informacao"]
+        },
+        "fn": tool_salvar_memoria
+    },
+    {
+        "name": "consultar_memoria",
+        "description": "Consulta fatos e memórias de longo prazo gravadas no JARVIS por busca semântica/BM25.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "termo_busca": {"type": "string", "description": "Palavra-chave ou assunto a buscar"},
+                "limite": {"type": "integer", "description": "Número máximo de resultados (padrão 5)"}
+            },
+            "required": ["termo_busca"]
+        },
+        "fn": tool_consultar_memoria
     }
 ]
 

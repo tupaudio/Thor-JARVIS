@@ -125,6 +125,14 @@ def processar_comando(texto: str, origem: str = "cli", timeout: float = 75.0) ->
         tr["rota"] = f"nuvem_{provedor}"
         tr["modelo"] = provedor
         resp_nuvem = ""
+
+        # PLANEJADOR HIERÁRQUICO MULTI-ETAPAS (Pendência 2 / OpenJarvis Planner Loop)
+        from planner_service import planner_service
+        if planner_service.eh_instrucao_composta(texto):
+            tr["rota"] = "planner_multi_etapas"
+            resp_plano = planner_service.decompor_e_executar(texto)
+            if resp_plano:
+                return _responder(resp_plano)
         
         if provedor == "openai":
             resp_nuvem = ai_router.executar_nuvem_openai(texto, system_instruction=JARVIS_SYSTEM_INSTRUCTION)

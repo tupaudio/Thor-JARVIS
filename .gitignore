@@ -82,5 +82,11 @@ Jarvis_3d_references/
 brain.bkp/
 *.bkp
 
+# Bancos de dados locais SQLite
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
 .continue/
 *.continue*

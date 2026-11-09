@@ -369,6 +369,37 @@ def verificar_qualidade_impressao_3d() -> str:
     else:
         return f"Inspeção visual concluída: {analise.get('motivo', 'A peça aparenta estar imprimindo normalmente.')}"
 
+def salvar_memoria_ou_preferencia(chave: str, informacao: str, categoria: str = "geral") -> str:
+    """
+    Grava um fato importante, preferência ou detalhe na memória de longo prazo (SQLite FTS5 / Memory Stream).
+    
+    Args:
+        chave: Identificador curto do fato (ex: 'temperatura_abs', 'aniversario_esposa', 'projeto_satelite').
+        informacao: Conteúdo detalhado a ser recordado no futuro.
+        categoria: Categoria da memória ('fato', 'preferencia', 'projeto_3d', 'rotina', 'pessoal').
+    """
+    from memory_service import memory_service
+    hardware.atualizar_tela(titulo="MEMÓRIA", subtitulo=f"Gravando: {chave[:15]}", icone="🧠")
+    ok = memory_service.salvar_memoria(chave, informacao, categoria=categoria, origem="ferramenta_llm")
+    return f"Fato memorizado com sucesso: '{chave}' registrado na memória de longo prazo, senhor." if ok else "Não consegui gravar a memória."
+
+def consultar_memoria_longo_prazo(termo_busca: str) -> str:
+    """
+    Pesquisa na memória episódica persistente do JARVIS fatos ou preferências guardadas anteriormente.
+    
+    Args:
+        termo_busca: Palavra-chave ou assunto a consultar (ex: 'PETG', 'filamento', 'projeto', 'luz').
+    """
+    from memory_service import memory_service
+    hardware.atualizar_tela(titulo="MEMÓRIA", subtitulo="Buscando lembrança...", icone="🧠")
+    mems = memory_service.buscar_memorias(termo_busca, limite=4)
+    if not mems:
+        return f"Não encontrei nenhum registro gravado sobre '{termo_busca}' na memória, senhor."
+    res = [f"Encontrei {len(mems)} registro(s) relevante(s):"]
+    for m in mems:
+        res.append(f"- [{m['categoria'].upper()}] {m['chave']}: {m['conteudo']}")
+    return "\n".join(res)
+
 def controlar_dispositivos_casa_inteligente(dispositivo: str, acao: str, valor: str = "") -> str:
     """
     Controla lâmpadas inteligentes, fitas LED, tomadas ou aparelhos de casa inteligente (ligar, desligar, brilho ou cor).
@@ -534,6 +565,7 @@ METADADOS_FERRAMENTAS = {
     "pausar_ou_retomar_impressao_3d": RiscoFerramenta.FISICO,
     "cancelar_impressao_3d": RiscoFerramenta.FISICO,
     # ESCRITA
+    "salvar_memoria_ou_preferencia": RiscoFerramenta.ESCRITA,
     "gerenciar_agenda": RiscoFerramenta.ESCRITA,
     "gerenciar_tarefas_google": RiscoFerramenta.ESCRITA,
     "adicionar_tarefa_notion": RiscoFerramenta.ESCRITA,
@@ -544,6 +576,7 @@ METADADOS_FERRAMENTAS = {
     "mudar_motor_ia": RiscoFerramenta.ESCRITA,
     "mudar_personalidade_ia": RiscoFerramenta.ESCRITA,
     # LEITURA
+    "consultar_memoria_longo_prazo": RiscoFerramenta.LEITURA,
     "consultar_status_impressora_3d": RiscoFerramenta.LEITURA,
     "verificar_qualidade_impressao_3d": RiscoFerramenta.LEITURA,
     "ler_ultimos_emails": RiscoFerramenta.LEITURA,
@@ -612,6 +645,8 @@ JARVIS_TOOLS = [
     pausar_ou_retomar_impressao_3d,
     cancelar_impressao_3d,
     verificar_qualidade_impressao_3d,
+    salvar_memoria_ou_preferencia,
+    consultar_memoria_longo_prazo,
 ]
 
 JARVIS_SYSTEM_INSTRUCTION = """

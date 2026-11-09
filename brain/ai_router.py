@@ -194,20 +194,131 @@ class AIRouter:
             self.historico.append({"role": "user", "content": prompt})
             self.historico.append({"role": "assistant", "content": resposta})
 
+    def _obter_ferramentas_openai(self) -> tuple:
+        """Gera especificações JSON Schema das JARVIS_TOOLS para Function Calling na OpenAI."""
+        try:
+            from jarvis_tools import JARVIS_TOOLS
+            import inspect
+            tools_spec = []
+            mapa = {}
+            for fn in JARVIS_TOOLS:
+                name = fn.__name__
+                mapa[name] = fn
+                doc = (fn.__doc__ or "").strip()
+                desc = doc.split("\n\n")[0].strip() if doc else name
+                sig = inspect.signature(fn)
+                props = {}
+                required = []
+                for p_name, p in sig.parameters.items():
+                    props[p_name] = {"type": "string", "description": f"Parâmetro {p_name}"}
+                    if p.default == inspect.Parameter.empty:
+                        required.append(p_name)
+                tools_spec.append({
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": desc[:300],
+                        "parameters": {
+                            "type": "object",
+                            "properties": props,
+                            "required": required
+                        }
+                    }
+                })
+            return tools_spec, mapa
+        except Exception:
+            return [], {}
+
+    def _obter_ferramentas_claude(self) -> tuple:
+        """Gera especificações JSON Schema das JARVIS_TOOLS para Tool Use na Anthropic Claude."""
+        try:
+            from jarvis_tools import JARVIS_TOOLS
+            import inspect
+            tools_spec = []
+            mapa = {}
+            for fn in JARVIS_TOOLS:
+                name = fn.__name__
+                mapa[name] = fn
+                doc = (fn.__doc__ or "").strip()
+                desc = doc.split("\n\n")[0].strip() if doc else name
+                sig = inspect.signature(fn)
+                props = {}
+                required = []
+                for p_name, p in sig.parameters.items():
+                    props[p_name] = {"type": "string", "description": f"Parâmetro {p_name}"}
+                    if p.default == inspect.Parameter.empty:
+                        required.append(p_name)
+                tools_spec.append({
+                    "name": name,
+                    "description": desc[:300],
+                    "input_schema": {
+                        "type": "object",
+                        "properties": props,
+                        "required": required
+                    }
+                })
+            return tools_spec, mapa
+        except Exception:
+            return [], {}
+
     def executar_nuvem_openai(self, prompt: str, system_instruction: str = "") -> str:
         chave = os.getenv("OPENAI_API_KEY", "").strip()
         if not chave or "sua_chave" in chave:
             return "A chave OPENAI_API_KEY não está configurada no .env, senhor."
         msgs = ([{"role": "system", "content": system_instruction}] if system_instruction else []) + self._montar_mensagens(prompt)
+        tools, mapa = self._obter_ferramentas_openai()
+        payload = {
+            "model": self.openai_model,
+            "messages": msgs,
+            "temperature": 0.7,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
         try:
             r = self._http.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {chave}"},
-                json={"model": self.openai_model, "messages": msgs, "temperature": 0.7},
-                timeout=(3, 25),
+                json=payload,
+                timeout=(3, 30),
             )
             if r.status_code == 200:
-                texto = r.json()["choices"][0]["message"]["content"].strip()
+                choice = r.json()["choices"][0]
+                msg_resp = choice["message"]
+                
+                # Execução recursiva de ferramentas (Function Calling)
+                if msg_resp.get("tool_calls"):
+                    msgs.append(msg_resp)
+                    for tc in msg_resp["tool_calls"]:
+                        fn_name = tc.get("function", {}).get("name")
+                        raw_args = tc.get("function", {}).get("arguments") or "{}"
+                        try:
+                            fn_args = json.loads(raw_args)
+                        except Exception:
+                            fn_args = {}
+                        fn = mapa.get(fn_name)
+                        try:
+                            res = fn(**fn_args) if fn else f"Ferramenta {fn_name} desconhecida."
+                        except Exception as e_fn:
+                            res = f"Erro ao executar {fn_name}: {e_fn}"
+                        msgs.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": str(res)
+                        })
+                    r2 = self._http.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {chave}"},
+                        json={"model": self.openai_model, "messages": msgs, "temperature": 0.7},
+                        timeout=(3, 30),
+                    )
+                    if r2.status_code == 200:
+                        texto = r2.json()["choices"][0]["message"]["content"].strip()
+                        self._registrar(prompt, texto)
+                        return texto
+
+                texto = (msg_resp.get("content") or "").strip()
                 self._registrar(prompt, texto)
                 return texto
             return f"A OpenAI respondeu com erro {r.status_code}, senhor."
@@ -218,17 +329,65 @@ class AIRouter:
         chave = os.getenv("ANTHROPIC_API_KEY", "").strip()
         if not chave or "sua_chave" in chave:
             return "A chave ANTHROPIC_API_KEY não está configurada no .env, senhor."
+        
+        tools, mapa = self._obter_ferramentas_claude()
+        payload = {
+            "model": self.anthropic_model,
+            "max_tokens": 1024,
+            "system": system_instruction or "Você é o J.A.R.V.I.S.",
+            "messages": self._montar_mensagens(prompt)
+        }
+        if tools:
+            payload["tools"] = tools
+
         try:
             r = self._http.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": chave, "anthropic-version": "2023-06-01"},
-                json={"model": self.anthropic_model, "max_tokens": 1024,
-                      "system": system_instruction or "Você é o J.A.R.V.I.S.",
-                      "messages": self._montar_mensagens(prompt)},
-                timeout=(3, 25),
+                json=payload,
+                timeout=(3, 30),
             )
             if r.status_code == 200:
-                texto = r.json()["content"][0]["text"].strip()
+                resp_json = r.json()
+                content_blocks = resp_json.get("content", [])
+                tool_uses = [b for b in content_blocks if b.get("type") == "tool_use"]
+                
+                # Execução de ferramentas no Claude (Tool Use)
+                if tool_uses:
+                    msgs = self._montar_mensagens(prompt)
+                    msgs.append({"role": "assistant", "content": content_blocks})
+                    tool_results = []
+                    for tu in tool_uses:
+                        fn_name = tu.get("name")
+                        fn_args = tu.get("input") or {}
+                        fn = mapa.get(fn_name)
+                        try:
+                            res = fn(**fn_args) if fn else f"Ferramenta {fn_name} desconhecida."
+                        except Exception as e_fn:
+                            res = f"Erro em {fn_name}: {e_fn}"
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tu["id"],
+                            "content": str(res)
+                        })
+                    msgs.append({"role": "user", "content": tool_results})
+                    r2 = self._http.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={"x-api-key": chave, "anthropic-version": "2023-06-01"},
+                        json={"model": self.anthropic_model, "max_tokens": 1024,
+                              "system": system_instruction or "Você é o J.A.R.V.I.S.",
+                              "messages": msgs},
+                        timeout=(3, 30),
+                    )
+                    if r2.status_code == 200:
+                        texto = ""
+                        for b in r2.json().get("content", []):
+                            if b.get("type") == "text":
+                                texto += b.get("text", "")
+                        self._registrar(prompt, texto.strip())
+                        return texto.strip()
+
+                texto = "".join(b.get("text", "") for b in content_blocks if b.get("type") == "text").strip()
                 self._registrar(prompt, texto)
                 return texto
             return f"A Anthropic respondeu com erro {r.status_code}, senhor."
