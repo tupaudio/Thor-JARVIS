@@ -81,10 +81,10 @@ Servo servoGarra;
 int posBase     = 90;
 int posOmbro    = 90;
 int posCotovelo = 90;
-// Garra: calibrada para fechamento firme sem forçar o motor (125 graus) e abertura total (30 graus)
+// Garra: calibrada para fechamento seguro sem travar o batente (105 graus) e abertura (30 graus)
 int GARRA_ABERTA  = 30;
-int GARRA_FECHADA = 125;
-int posGarra      = 125;
+int GARRA_FECHADA = 105;
+int posGarra      = 105;
 
 // Estados das Expressões Faciais do J.A.R.V.I.S.
 enum Expressao {
@@ -178,6 +178,12 @@ void desenergizarServos() {
   servoGarra.detach();
 }
 
+// Corta o sinal PWM da garra após movimentá-la para eliminar corrente de stall e superaquecimento
+void relaxarGarra() {
+  delay(200);
+  servoGarra.detach();
+}
+
 void moverSuave(Servo &servo, int &posAtual, int posAlvo, int delayMs = 12) {
   if (posAtual < posAlvo) {
     for (int i = posAtual; i <= posAlvo; i++) {
@@ -198,6 +204,7 @@ void posturaProntidao() {
   expressaoAtual = FACE_NEUTRO;
   atualizarDisplay();
   moverSuave(servoGarra, posGarra, GARRA_FECHADA);
+  relaxarGarra(); // Corta corrente da garra: zero aquecimento!
   moverSuave(servoCotovelo, posCotovelo, 90);
   moverSuave(servoOmbro, posOmbro, 90);
   // Movimento de teste da Base: varredura ampla (130 -> 50 -> 90) para superar atrito e comprovar giro
@@ -329,15 +336,18 @@ void loop() {
     } else if (comando == "CMD:GARRA:OPEN") {
       garantirServosAtivos();
       moverSuave(servoGarra, posGarra, GARRA_ABERTA);
+      relaxarGarra();
       Serial.println("ACK:GARRA_OPEN");
     } else if (comando == "CMD:GARRA:CLOSE") {
       garantirServosAtivos();
       moverSuave(servoGarra, posGarra, GARRA_FECHADA);
+      relaxarGarra();
       Serial.println("ACK:GARRA_CLOSE");
     } else if (comando.startsWith("CMD:GARRA:")) {
       int ang = constrain(comando.substring(10).toInt(), 0, 180);
       garantirServosAtivos();
       moverSuave(servoGarra, posGarra, ang);
+      relaxarGarra();
       Serial.print("ACK:GARRA_"); Serial.println(ang);
     } else if (comando.startsWith("CMD:BASE:")) {
       int ang = constrain(comando.substring(9).toInt(), 0, 180);
