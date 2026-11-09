@@ -1,17 +1,17 @@
 """
 camera_manager.py — Arbitragem de câmera (iPhone no dock + webcam V4L2 opcional) para o J.A.R.V.I.S.
 
-Mudanças:
-  * Sem referências a Windows/DirectShow; webcam local usa V4L2 (/dev/video*) quando existir.
-  * Frames do iPhone chegam várias vezes por segundo: agora só o JPEG bruto é guardado (validado e
-    com tamanho limitado). A decodificação (cv2.imdecode, ~6 MB por frame 1080p) é feita sob demanda
-    por quem precisa do array (sentinela/visão), não na thread HTTP a cada POST.
-  * Condition + contador de frames: o MJPEG espera um frame NOVO em vez de fazer polling a cada 200 ms.
+Melhorias (QW8 / F13):
+  * Dois locks independentes: `_frame_lock` (Condition do buffer de frames na memória) e
+    `_device_lock` (I/O de webcam física V4L2). Falhas/travamentos em /dev/video* não travam o stream do iPhone.
+  * Relógio monotônico (`time.monotonic()`) para evitar derivas por ajustes de NTP/fuso horário.
+  * Gravação atômica de foto (`capturar_foto`) via arquivo temporário + `os.replace` para evitar leitura de arquivo corrompido.
 """
 
 import os
 import time
 import threading
+import tempfile
 
 
 class CameraManager:
@@ -19,8 +19,9 @@ class CameraManager:
 
     def __init__(self, camera_index: int = 0):
         self.camera_index = camera_index
-        self._lock = threading.Lock()
-        self._novo_frame = threading.Condition(self._lock)
+        self._frame_lock = threading.Lock()
+        self._novo_frame = threading.Condition(self._frame_lock)
+        self._device_lock = threading.Lock()
         self._cap = None
         self._is_streaming = False
         self._base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -36,18 +37,18 @@ class CameraManager:
             return False
         with self._novo_frame:
             self._remote_jpeg_bytes = jpeg_bytes
-            self._remote_frame_time = time.time()
+            self._remote_frame_time = time.monotonic()
             self._frame_seq += 1
             self._novo_frame.notify_all()
         return True
 
     def tem_camera_iphone_ativa(self, max_age_sec: float = 10.0) -> bool:
-        with self._lock:
-            return self._remote_jpeg_bytes is not None and (time.time() - self._remote_frame_time) <= max_age_sec
+        with self._frame_lock:
+            return self._remote_jpeg_bytes is not None and (time.monotonic() - self._remote_frame_time) <= max_age_sec
 
     def obter_ultimo_jpeg_remoto(self, max_age_sec: float = 30.0):
-        with self._lock:
-            if self._remote_jpeg_bytes and (time.time() - self._remote_frame_time) <= max_age_sec:
+        with self._frame_lock:
+            if self._remote_jpeg_bytes and (time.monotonic() - self._remote_frame_time) <= max_age_sec:
                 return self._remote_jpeg_bytes
         return None
 
@@ -69,15 +70,17 @@ class CameraManager:
 
     # ------------------------------------------------------------- webcam local
     def is_streaming(self) -> bool:
-        return self._is_streaming
+        with self._device_lock:
+            return self._is_streaming
 
     def iniciar_stream(self) -> bool:
         """Prepara a captura contínua (iPhone se estiver enviando; senão webcam V4L2 local)."""
         if self.tem_camera_iphone_ativa():
-            self._is_streaming = True
+            with self._device_lock:
+                self._is_streaming = True
             return True
         import cv2
-        with self._lock:
+        with self._device_lock:
             if self._is_streaming and self._cap is not None and self._cap.isOpened():
                 return True
             try:
@@ -94,7 +97,7 @@ class CameraManager:
                 self._is_streaming = True
                 return True
             except Exception as e:
-                print(f"⚠️ [CAMERA_MANAGER] Erro ao iniciar stream: {e}")
+                print(f"⚠️ [CAMERA_MANAGER] Erro ao iniciar stream local: {e}")
                 if self._cap:
                     self._cap.release()
                     self._cap = None
@@ -102,7 +105,7 @@ class CameraManager:
                 return False
 
     def parar_stream(self):
-        with self._lock:
+        with self._device_lock:
             self._is_streaming = False
             if self._cap is not None:
                 try:
@@ -117,7 +120,7 @@ class CameraManager:
         if frame is not None:
             return True, frame
         import cv2
-        with self._lock:
+        with self._device_lock:
             if self._is_streaming and self._cap is not None and self._cap.isOpened():
                 return self._cap.read()
             if not os.path.exists(f"/dev/video{self.camera_index}"):
@@ -132,25 +135,31 @@ class CameraManager:
                 cap.release()
                 return ret, frame
             except Exception as e:
-                print(f"⚠️ [CAMERA_MANAGER] Erro ao capturar frame avulso: {e}")
+                print(f"⚠️ [CAMERA_MANAGER] Erro ao capturar frame avulso local: {e}")
                 return False, None
 
     def capturar_foto(self, caminho_saida: str = None) -> str:
-        """Salva uma foto (o JPEG do iPhone é gravado direto, sem recodificar). Retorna o caminho ou ''."""
+        """Salva uma foto de forma atômica (grava em temp e move). Retorna o caminho ou ''."""
         destino = caminho_saida or self.default_photo_path
+        pasta_destino = os.path.dirname(os.path.abspath(destino))
         jpeg = self.obter_ultimo_jpeg_remoto(max_age_sec=10.0)
         try:
             if jpeg:
-                with open(destino, "wb") as f:
+                fd, tmp_path = tempfile.mkstemp(dir=pasta_destino, prefix="tmp_photo_", suffix=".jpg")
+                with os.fdopen(fd, "wb") as f:
                     f.write(jpeg)
+                os.replace(tmp_path, destino)
                 return destino
             import cv2
             ok, frame = self.obter_frame()
             if ok and frame is not None:
-                cv2.imwrite(destino, frame)
+                fd, tmp_path = tempfile.mkstemp(dir=pasta_destino, prefix="tmp_photo_", suffix=".jpg")
+                os.close(fd)
+                cv2.imwrite(tmp_path, frame)
+                os.replace(tmp_path, destino)
                 return destino
         except Exception as e:
-            print(f"⚠️ [CAMERA_MANAGER] Erro ao salvar imagem: {e}")
+            print(f"⚠️ [CAMERA_MANAGER] Erro ao salvar imagem atômica: {e}")
         return ""
 
 

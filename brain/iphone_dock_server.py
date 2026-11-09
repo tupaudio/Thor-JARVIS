@@ -129,6 +129,7 @@ class DockState:
         self.face_expression = "NEUTRO"
         self.last_response = "Sistemas prontos no Dock, senhor. Toque no Reator para falar."
         self.camera_streaming = False
+        self._ultimo_frame_ts = 0.0
         self._sintetizando = False
         self._falas = OrderedDict()      # id -> {"audio": bytes, "texto": str, "ts": float}
         self._pendentes = []             # ids publicados e ainda não confirmados pelo HUD
@@ -170,9 +171,14 @@ class DockState:
         self.notificar()
 
     def registrar_frame_camera(self):
-        if not self.camera_streaming:
-            with self._lock:
+        agora = time.monotonic()
+        mudou = False
+        with self._lock:
+            self._ultimo_frame_ts = agora
+            if not self.camera_streaming:
                 self.camera_streaming = True
+                mudou = True
+        if mudou:
             self.notificar()
 
     # ---- fala / áudio
@@ -250,6 +256,10 @@ class DockState:
         with self._lock:
             # pendentes que o HUD nunca confirmou (aba fechada) expiram e não prendem "speaking"
             self._pendentes = [i for i in self._pendentes if i in self._falas and agora - self._falas[i]["ts"] < self.EXPIRA_PENDENTE]
+            # Timeout de presença da câmera: se passar mais de 10 s sem frame novo, volta a False (F16)
+            if self.camera_streaming and (time.monotonic() - getattr(self, "_ultimo_frame_ts", 0) > 10.0):
+                self.camera_streaming = False
+
             return {
                 "hud": {
                     "title": self.hud_title, "subtitle": self.hud_subtitle, "icon": self.hud_icon,

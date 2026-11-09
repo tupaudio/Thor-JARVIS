@@ -37,6 +37,16 @@ ALIASES = {
 }
 
 
+PASTAS_PERMITIDAS_ORGANIZACAO = {
+    "downloads", "transferências", "transferencias",
+    "desktop", "área de trabalho", "area de trabalho",
+    "documentos", "documents",
+    "imagens", "pictures",
+    "vídeos", "videos",
+    "músicas", "music"
+}
+
+
 def _categoria(ext: str):
     for cat, exts in CATEGORIAS.items():
         if ext in exts:
@@ -117,7 +127,16 @@ class FileManagerService:
         if erro:
             return erro
         if alvo == HOME:
-            return "Por segurança não reorganizo a raiz do seu home, senhor. Posso analisá-la ou organizar uma subpasta."
+            return "Por segurança não reorganizo a raiz do seu home, senhor. Posso analisá-la ou organizar uma subpasta segura."
+
+        # TRAVA DE SEGURANÇA (F10):
+        # Apenas pastas padrão de arquivos soltos do usuário são permitidas.
+        # Pastas de código, projetos (ex: Jarvis), configurações ou ambientes virtuais são protegidas contra movimentação.
+        relativo_home = alvo.relative_to(HOME)
+        primeira_pasta = relativo_home.parts[0].lower()
+        if primeira_pasta not in PASTAS_PERMITIDAS_ORGANIZACAO:
+            return (f"Por segurança, a organização automática de arquivos está restrita às pastas usuais de arquivos recebidos "
+                    f"(Downloads, Desktop, Documentos, Imagens). A pasta '{alvo.name}' foi protegida contra movimentações automáticas.")
         movidos = 0
         por_cat = {}
         registro = []

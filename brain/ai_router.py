@@ -28,8 +28,9 @@ load_dotenv(ENV_PATH)
 # Pedidos que SEMPRE vão para a nuvem (precisam de ferramentas/rede), mesmo que contenham uma palavra "local".
 _RE_NUVEM = re.compile(
     r"\b(pesquis\w*|busc\w*|noticia\w*|youtube|resum\w*|e-?mail\w*|spotify|to(ca|car|que)|musica\w*|"
-    r"agenda\w*|compromiss\w*|clima|previsao|chuva|rota|transito|waze|notion|whatsapp|telegram|"
-    r"gasto\w*|protocolo\w*|sentinela|persona\w*|personalidade|impressora|foto|camera)\b"
+    r"agenda\w*|compromiss\w*|clima|previsao|tempo|chuva|graus|rota|transito|waze|notion|whatsapp|telegram|"
+    r"jogo\w*|partida\w*|campeonato|futebol|escalac\w+|gasto\w*|protocolo\w*|sentinela|persona\w*|personalidade|"
+    r"impressora|foto|camera)\b"
 )
 
 # (intenção, regex) — a primeira que casar vence. Texto já normalizado (minúsculo, sem acento).
@@ -39,11 +40,11 @@ _INTENCOES = [
     ("hardware",      re.compile(r"\b(hardware|especificac\w+|optiplex|que maquina|modelo d[aeo] (maquina|cpu|processador)|qual (e )?o? ?processador|que processador)\b")),
     ("status",        re.compile(r"\b(status|estado|telemetria|como (esta|anda|vai))\b.*\b(servidor|sistema|computador|pc|maquina)\b"
                                  r"|\b(servidor|sistema|computador|pc)\b.*\b(status|estado|telemetria)\b"
-                                 r"|\b(uso de (cpu|memoria|ram)|temperatura|cpu|memoria|ram)\b")),
+                                 r"|\b(uso de (cpu|memoria|ram)|temperatura (d[ao]|n[ao]) (servidor|cpu|pc|processador|maquina)|cpu|memoria|ram)\b")),
     ("luz",           re.compile(r"\b(luz|luzes|lampada\w*|fita led|led|tomada\w*|dimmer)\b")),
     ("braco",         re.compile(r"\b(acen\w+|apont\w+|braco|repouso|joinha|positivo|tchau)\b")),
-    ("hora",          re.compile(r"\b(que horas|hora atual|horario)\b")),
-    ("data",          re.compile(r"\b(que dia|data de hoje)\b")),
+    ("hora",          re.compile(r"\b(que horas( sao)?|hora atual|qual a hora|que horas sao)\b")),
+    ("data",          re.compile(r"\b(que dia e hoje|data de hoje|qual a data|em que dia estamos)\b")),
 ]
 
 
@@ -55,6 +56,7 @@ def normalizar(texto: str) -> str:
 class AIRouter:
     def __init__(self):
         self._lock = threading.Lock()
+        self._hist_lock = threading.Lock()
         self._http = requests.Session()
         self._cache_ollama = (0.0, None)
         self.historico = deque(maxlen=12)  # mensagens user/assistant alternadas, limitadas
@@ -96,7 +98,8 @@ class AIRouter:
         else:
             return f"Provedor '{provedor}' não suportado. Opções: gemini, openai, claude."
         atualizar_env("CLOUD_AI_PROVIDER", self.cloud_provider)
-        self.historico.clear()
+        with self._hist_lock:
+            self.historico.clear()
         return f"Motor de nuvem alterado para {nome}."
 
     def definir_modelo_local(self, modelo: str) -> str:
@@ -179,15 +182,17 @@ class AIRouter:
 
     # ------------------------------------------------------ nuvem via REST
     def _montar_mensagens(self, prompt: str) -> list:
-        msgs = list(self.historico)
+        with self._hist_lock:
+            msgs = list(self.historico)
         while msgs and msgs[0]["role"] != "user":
             msgs.pop(0)
         msgs.append({"role": "user", "content": prompt})
         return msgs
 
     def _registrar(self, prompt: str, resposta: str):
-        self.historico.append({"role": "user", "content": prompt})
-        self.historico.append({"role": "assistant", "content": resposta})
+        with self._hist_lock:
+            self.historico.append({"role": "user", "content": prompt})
+            self.historico.append({"role": "assistant", "content": resposta})
 
     def executar_nuvem_openai(self, prompt: str, system_instruction: str = "") -> str:
         chave = os.getenv("OPENAI_API_KEY", "").strip()
