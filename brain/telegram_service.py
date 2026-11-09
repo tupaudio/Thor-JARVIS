@@ -12,6 +12,7 @@ import json
 import asyncio
 import threading
 import random
+import queue
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
@@ -28,7 +29,9 @@ class TelegramBotService:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "JARVIS-Assistant/1.0"})
         self._poll_session = requests.Session()   # sessão exclusiva do long polling (não compartilhada com os envios)
-        self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="tg-msg")
+        self._pool = ThreadPoolExecutor(max_workers=5, thread_name_prefix="tg-msg")
+        self._chat_queues = {}                    # chat_id -> queue.Queue (garante FIFO por conversa)
+        self._queues_lock = threading.Lock()
         self.polling_active = False
         self.last_update_id = 0
 
@@ -433,6 +436,32 @@ class TelegramBotService:
         except Exception as e:
             print(f"⚠️ [TELEGRAM] Erro ao tratar mensagem: {e}")
 
+    def _processar_fila_chat(self, chat_id: str, q: queue.Queue):
+        """Consome mensagens do chat sequencialmente garantindo ordem FIFO."""
+        while True:
+            try:
+                update = q.get(timeout=2.0)
+                self._tratar_seguro(update)
+                q.task_done()
+            except queue.Empty:
+                with self._queues_lock:
+                    if q.empty():
+                        self._chat_queues.pop(chat_id, None)
+                        break
+
+    def despachar_update(self, update: dict):
+        """Enfileira a mensagem na fila FIFO exclusiva do chat para evitar inversão de ordem."""
+        msg = update.get("message") or update.get("callback_query", {}).get("message", {})
+        chat_id = str(msg.get("chat", {}).get("id") or "global")
+        with self._queues_lock:
+            if chat_id not in self._chat_queues:
+                q = queue.Queue()
+                self._chat_queues[chat_id] = q
+                q.put(update)
+                self._pool.submit(self._processar_fila_chat, chat_id, q)
+            else:
+                self._chat_queues[chat_id].put(update)
+
     def polling_loop(self):
         """Loop contínuo de escuta (Long Polling) para mensagens do Telegram."""
         print("🤖 [TELEGRAM] Listener de mensagens ativado em segundo plano...")
@@ -448,8 +477,8 @@ class TelegramBotService:
                     if dados.get("ok"):
                         for update in dados.get("result", []):
                             self.last_update_id = update.get("update_id", self.last_update_id)
-                            # Em pool: uma resposta lenta do Gemini não congela a leitura de novas mensagens
-                            self._pool.submit(self._tratar_seguro, update)
+                            # Fila sequencial por chat: garante ordem FIFO estrita por usuário
+                            self.despachar_update(update)
                 else:
                     time.sleep(3)
             except Exception:

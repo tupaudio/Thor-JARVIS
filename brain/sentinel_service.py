@@ -56,7 +56,7 @@ class SentinelService:
         return (
             f"🛡️ Modo Sentinela ATIVADO com sucesso, senhor! "
             f"Estarei vigiando sua mesa pelas próximas {duracao_minutos} minutos. "
-            f"Caso qualquer pessoa se aproxime, trancarei o computador e enviarei a foto imediatamente no seu Telegram."
+            f"Caso qualquer pessoa se aproxime, capturarei o registro visual e enviarei a foto de segurança imediatamente no seu Telegram."
         )
 
     def desativar(self) -> str:
@@ -163,8 +163,9 @@ class SentinelService:
                     except Exception as e:
                         print(f"⚠️ [SENTINELA] Erro ao avisar Telegram: {e}")
 
-                # Atualiza frame base gradualmente
-                gray_base = gray_atual
+                # Atualiza frame base gradualmente apenas se não houver movimento ativo
+                if not movimento_detectado:
+                    gray_base = gray_atual
                 time.sleep(0.6)
 
         finally:

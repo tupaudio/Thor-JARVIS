@@ -19,16 +19,17 @@ from datetime import datetime
 
 from ai_router import ai_router, normalizar
 
-# Pool próprio para ações locais com prazo (dispositivos lentos não seguram a thread de quem chama).
-_pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="jarvis-local")
+# Pool dinâmico para ações locais com prazo (evita esgotamento se dispositivos IoT demorarem para responder).
+_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="jarvis-local")
 
 
 def com_prazo(fn, prazo: float, msg_estouro: str):
-    """Executa fn() e devolve seu resultado; se passar do prazo devolve msg_estouro (a ação segue em segundo plano)."""
+    """Executa fn() e devolve seu resultado; se passar do prazo devolve msg_estouro e cancela o future."""
     fut = _pool.submit(fn)
     try:
         return fut.result(timeout=prazo)
     except FutTimeout:
+        fut.cancel()
         return msg_estouro
     except Exception as e:
         return f"Não consegui concluir a ação, senhor: {e}"

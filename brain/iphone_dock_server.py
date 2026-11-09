@@ -130,7 +130,7 @@ class DockState:
         self.last_response = "Sistemas prontos no Dock, senhor. Toque no Reator para falar."
         self.camera_streaming = False
         self._ultimo_frame_ts = 0.0
-        self._sintetizando = False
+        self._sintetizando = 0
         self._falas = OrderedDict()      # id -> {"audio": bytes, "texto": str, "ts": float}
         self._pendentes = []             # ids publicados e ainda não confirmados pelo HUD
         self._seq = 0
@@ -185,12 +185,12 @@ class DockState:
     def definir_resposta(self, texto: str):
         with self._lock:
             self.last_response = texto
-            self._sintetizando = True
+            self._sintetizando += 1
         self.notificar()
 
     def fim_da_resposta(self):
         with self._lock:
-            self._sintetizando = False
+            self._sintetizando = max(0, self._sintetizando - 1)
         self.notificar()
 
     def publicar_audio(self, audio_bytes: bytes, texto: str = "") -> int:
@@ -224,7 +224,7 @@ class DockState:
         """Barge-in: descarta fila e manda o HUD parar."""
         with self._lock:
             self._pendentes.clear()
-            self._sintetizando = False
+            self._sintetizando = 0
             subs = list(self._subs)
         for s in subs:
             s.parar = True
@@ -264,7 +264,7 @@ class DockState:
                 "hud": {
                     "title": self.hud_title, "subtitle": self.hud_subtitle, "icon": self.hud_icon,
                     "face": self.face_expression, "last_response": self.last_response,
-                    "speaking": bool(self._pendentes) or self._sintetizando,
+                    "speaking": bool(self._pendentes) or (self._sintetizando > 0),
                     "pending_audio": list(self._pendentes), "audio_seq": self._seq,
                 },
                 "persona": {
