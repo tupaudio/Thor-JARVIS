@@ -48,8 +48,8 @@
 // SCL/CLK -> D13 | SDA/DIN -> D11 | CS -> D10 | DC -> D9 | RST -> D8 | VCC/GND -> D13
 //
 // Driver oficial com offset zero (PIMORONI layout para módulos 1.5" SH1107 de 7 pinos):
-// Elimina o deslocamento horizontal de 32px e o espelhamento de texto (letras invertidas).
-U8G2_SH1107_PIMORONI_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+// Rotação: U8G2_R2 inverte 180 graus conforme solicitado pelo usuário para acomodar os cabos.
+U8G2_SH1107_PIMORONI_128X128_1_4W_HW_SPI u8g2(U8G2_R2, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 
 // ==============================================================================
 // 2. PINOS DOS SERVOS
@@ -103,61 +103,164 @@ unsigned long tempoInicioPiscar = 0;
 bool emPiscar = false;
 
 // ==============================================================================
-// 3. FUNÇÕES DE DESENHO DO ROSTO ROBÓTICO (128x128 SH1107 ORIGINAL)
+// 3. FUNÇÕES DE DESENHO DO ROSTO ROBÓTICO REALISTA (128x128 SH1107 PIMORONI)
 // ==============================================================================
 
-void desenharOlhos(int alturaOlho, int raioBorda, int deslocX = 0, int deslocY = 0) {
-  // Olho Esquerdo: centro em x=42, y=64
-  // Olho Direito:  centro em x=86, y=64
-  int largura = 32;
-  int yTop = 64 - (alturaOlho / 2) + deslocY;
+void desenharMolduraHUD() {
+  // Cantos cibernéticos estilo Stark Tech HUD
+  u8g2.drawLine(4, 4, 16, 4);
+  u8g2.drawLine(4, 4, 4, 16);
+  u8g2.drawLine(111, 4, 123, 4);
+  u8g2.drawLine(123, 4, 123, 16);
+  u8g2.drawLine(4, 123, 16, 123);
+  u8g2.drawLine(4, 123, 4, 111);
+  u8g2.drawLine(111, 123, 123, 123);
+  u8g2.drawLine(123, 123, 123, 111);
   
-  u8g2.drawRBox(42 - (largura / 2) + deslocX, yTop, largura, alturaOlho, raioBorda);
-  u8g2.drawRBox(86 - (largura / 2) + deslocX, yTop, largura, alturaOlho, raioBorda);
+  // Badge de identificação no topo
+  u8g2.setFont(u8g2_font_4x6_tf);
+  u8g2.drawStr(43, 11, "J.A.R.V.I.S.");
 }
 
-void desenharFaceFeliz() {
-  // Dois arcos sorridentes estilizados (^)
-  u8g2.drawDisc(42, 60, 18, U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT);
-  u8g2.drawDisc(86, 60, 18, U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT);
+void desenharNariz() {
+  // Sensor óptico central facial
+  u8g2.drawLine(64, 69, 61, 75);
+  u8g2.drawLine(61, 75, 67, 75);
+  u8g2.drawLine(67, 75, 64, 69);
 }
 
-void desenharFaceOuvindo() {
-  // Olhos arregalados e reator Arc sutil pulsante
-  desenharOlhos(34, 10, 0, 0);
-  u8g2.drawCircle(64, 110, 6);
-  u8g2.drawDisc(64, 110, 2);
-}
+void desenharFaceRealista(Expressao exp) {
+  desenharMolduraHUD();
+  desenharNariz();
 
-void desenharFaceSono() {
-  // Olhos fechados (duas linhas horizontais espessas)
-  u8g2.drawBox(26, 64, 32, 4);
-  u8g2.drawBox(70, 64, 32, 4);
+  switch (exp) {
+    case FACE_NEUTRO:
+      // Sobrancelhas inteligentes
+      u8g2.drawLine(24, 34, 52, 33);
+      u8g2.drawLine(24, 35, 52, 34);
+      u8g2.drawLine(76, 33, 104, 34);
+      u8g2.drawLine(76, 34, 104, 35);
+      
+      // Contorno dos Olhos com acabamento arredondado
+      u8g2.drawRFrame(20, 43, 36, 24, 6);
+      u8g2.drawRFrame(72, 43, 36, 24, 6);
+      
+      // Íris com ponto de reflexo de luz natural
+      u8g2.drawDisc(38, 55, 8);
+      u8g2.drawDisc(90, 55, 8);
+      u8g2.setDrawColor(0);
+      u8g2.drawDisc(36, 53, 2);
+      u8g2.drawDisc(88, 53, 2);
+      u8g2.setDrawColor(1);
+      
+      // Modulador vocal cibernético (boca inteligente)
+      u8g2.drawRBox(46, 94, 36, 4, 2);
+      u8g2.drawLine(40, 96, 43, 96);
+      u8g2.drawLine(85, 96, 88, 96);
+      break;
+
+    case FACE_PISCANDO:
+      // Sobrancelhas relaxadas
+      u8g2.drawLine(24, 35, 52, 34);
+      u8g2.drawLine(76, 34, 104, 35);
+      
+      // Pálpebras fechadas
+      u8g2.drawRBox(20, 54, 36, 4, 2);
+      u8g2.drawRBox(72, 54, 36, 4, 2);
+      
+      // Boca neutra
+      u8g2.drawRBox(46, 94, 36, 4, 2);
+      break;
+
+    case FACE_OUVINDO:
+      // Sobrancelhas arqueadas com atenção
+      u8g2.drawLine(24, 30, 52, 31);
+      u8g2.drawLine(76, 31, 104, 30);
+      
+      // Olhos alertas e abertos
+      u8g2.drawRFrame(18, 41, 40, 28, 7);
+      u8g2.drawRFrame(70, 41, 40, 28, 7);
+      u8g2.drawDisc(38, 55, 10);
+      u8g2.drawDisc(90, 55, 10);
+      u8g2.setDrawColor(0);
+      u8g2.drawDisc(35, 52, 3);
+      u8g2.drawDisc(87, 52, 3);
+      u8g2.setDrawColor(1);
+      
+      // Equalizador de onda de voz ativo (pulsando com a audição)
+      u8g2.drawBox(40, 94, 3, 7);
+      u8g2.drawBox(48, 90, 3, 15);
+      u8g2.drawBox(56, 85, 3, 23);
+      u8g2.drawBox(64, 82, 3, 28);
+      u8g2.drawBox(72, 85, 3, 23);
+      u8g2.drawBox(80, 90, 3, 15);
+      u8g2.drawBox(88, 94, 3, 7);
+      break;
+
+    case FACE_FELIZ:
+      // Sobrancelhas sorridentes
+      u8g2.drawLine(24, 33, 38, 27);
+      u8g2.drawLine(38, 27, 52, 32);
+      u8g2.drawLine(76, 32, 90, 27);
+      u8g2.drawLine(90, 27, 104, 33);
+      
+      // Olhos em arco expressivo sorridente (^)
+      u8g2.drawCircle(38, 56, 14, U8G2_DRAW_UPPER);
+      u8g2.drawCircle(38, 55, 14, U8G2_DRAW_UPPER);
+      u8g2.drawCircle(90, 56, 14, U8G2_DRAW_UPPER);
+      u8g2.drawCircle(90, 55, 14, U8G2_DRAW_UPPER);
+      
+      // Sorriso suave
+      u8g2.drawCircle(64, 86, 18, U8G2_DRAW_LOWER);
+      u8g2.drawCircle(64, 85, 18, U8G2_DRAW_LOWER);
+      u8g2.drawLine(44, 94, 47, 92);
+      u8g2.drawLine(84, 94, 81, 92);
+      break;
+
+    case FACE_FOCADO:
+      // Sobrancelhas anguladas em foco analítico
+      u8g2.drawLine(24, 28, 52, 36);
+      u8g2.drawLine(24, 29, 52, 37);
+      u8g2.drawLine(76, 36, 104, 28);
+      u8g2.drawLine(76, 37, 104, 29);
+      
+      // Olhos focados e atentos
+      u8g2.drawRFrame(22, 47, 34, 18, 4);
+      u8g2.drawRFrame(72, 47, 34, 18, 4);
+      u8g2.drawDisc(39, 56, 6);
+      u8g2.drawDisc(89, 56, 6);
+      u8g2.setDrawColor(0);
+      u8g2.drawDisc(38, 55, 1);
+      u8g2.drawDisc(88, 55, 1);
+      u8g2.setDrawColor(1);
+      
+      // Boca concentrada
+      u8g2.drawBox(50, 95, 28, 3);
+      break;
+
+    case FACE_SONO:
+      // Sobrancelhas neutras baixas
+      u8g2.drawLine(26, 37, 50, 37);
+      u8g2.drawLine(78, 37, 102, 37);
+      
+      // Olhos cerrados em descanso
+      u8g2.drawCircle(38, 56, 14, U8G2_DRAW_LOWER);
+      u8g2.drawCircle(90, 56, 14, U8G2_DRAW_LOWER);
+      
+      // Boca serena e efeito 'Z z z'
+      u8g2.drawBox(54, 96, 20, 2);
+      u8g2.setFont(u8g2_font_4x6_tf);
+      u8g2.drawStr(104, 24, "Z");
+      u8g2.drawStr(110, 19, "z");
+      u8g2.drawStr(116, 14, "z");
+      break;
+  }
 }
 
 void atualizarDisplay() {
   u8g2.firstPage();
   do {
-    switch (expressaoAtual) {
-      case FACE_NEUTRO:
-        desenharOlhos(28, 8, 0, 0);
-        break;
-      case FACE_PISCANDO:
-        desenharOlhos(4, 2, 0, 0);
-        break;
-      case FACE_OUVINDO:
-        desenharFaceOuvindo();
-        break;
-      case FACE_FELIZ:
-        desenharFaceFeliz();
-        break;
-      case FACE_FOCADO:
-        desenharOlhos(20, 4, 4, -4);
-        break;
-      case FACE_SONO:
-        desenharFaceSono();
-        break;
-    }
+    desenharFaceRealista(expressaoAtual);
   } while (u8g2.nextPage());
 }
 
@@ -212,14 +315,26 @@ void posturaProntidao() {
   garantirServosAtivos();
   expressaoAtual = FACE_NEUTRO;
   atualizarDisplay();
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA);
+
+  // 1. Diagnóstico da Garra: abre e fecha
+  moverSuave(servoGarra, posGarra, 40, 12);
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 12);
   relaxarGarra(); // Corta corrente da garra: zero aquecimento!
-  moverSuave(servoCotovelo, posCotovelo, 90);
-  moverSuave(servoOmbro, posOmbro, 90);
-  // Movimento de teste da Base: varredura ampla (130 -> 50 -> 90) para superar atrito e comprovar giro
-  moverSuave(servoBase, posBase, 130, 15);
-  moverSuave(servoBase, posBase, 50, 15);
-  moverSuave(servoBase, posBase, 90, 15);
+
+  // 2. Diagnóstico da Base: varredura ampla (130 -> 50 -> 90) em D2 e D6
+  moverSuave(servoBase, posBase, 130, 14);
+  moverSuave(servoBase, posBase, 50, 14);
+  moverSuave(servoBase, posBase, 90, 14);
+
+  // 3. Diagnóstico do Ombro: varredura suave (110 -> 70 -> 90)
+  moverSuave(servoOmbro, posOmbro, 110, 14);
+  moverSuave(servoOmbro, posOmbro, 70, 14);
+  moverSuave(servoOmbro, posOmbro, 90, 14);
+
+  // 4. Diagnóstico do Cotovelo: varredura suave (110 -> 70 -> 90)
+  moverSuave(servoCotovelo, posCotovelo, 110, 14);
+  moverSuave(servoCotovelo, posCotovelo, 70, 14);
+  moverSuave(servoCotovelo, posCotovelo, 90, 14);
 }
 
 void posturaDescanso() {
