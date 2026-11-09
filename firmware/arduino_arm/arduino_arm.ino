@@ -92,7 +92,12 @@ Servo servoGarra;
 int posBase     = 90;
 int posOmbro    = 90;
 int posCotovelo = 90;
-int posGarra    = 30;
+// Garra: ajuste estes dois ângulos conforme a sua mecânica (0-180).
+// Como a garra ficava sempre aberta com 10-60°, o "fechar" fica num ângulo MAIOR.
+// Calibre sem regravar: CMD:GARRA:<graus> (ex.: CMD:GARRA:80). Não force o servo contra o batente.
+int GARRA_ABERTA  = 30;
+int GARRA_FECHADA = 80;
+int posGarra    = 80;
 
 // Estados das Expressões Faciais do J.A.R.V.I.S.
 enum Expressao {
@@ -232,7 +237,7 @@ void posturaProntidao() {
   garantirServosAtivos();
   expressaoAtual = FACE_NEUTRO;
   atualizarDisplay();
-  moverSuave(servoGarra, posGarra, 30);
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA);
   moverSuave(servoCotovelo, posCotovelo, 90);
   moverSuave(servoOmbro, posOmbro, 90);
   moverSuave(servoBase, posBase, 90);
@@ -242,7 +247,7 @@ void posturaDescanso() {
   garantirServosAtivos();
   expressaoAtual = FACE_SONO;
   atualizarDisplay();
-  moverSuave(servoGarra, posGarra, 10);
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA);
   moverSuave(servoCotovelo, posCotovelo, 45);
   moverSuave(servoOmbro, posOmbro, 45);
   moverSuave(servoBase, posBase, 90);
@@ -270,7 +275,7 @@ void rotinaApontar() {
   moverSuave(servoBase, posBase, 90);
   moverSuave(servoOmbro, posOmbro, 120);
   moverSuave(servoCotovelo, posCotovelo, 120);
-  moverSuave(servoGarra, posGarra, 60);
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA);
   delay(1200);
   posturaProntidao();
 }
@@ -283,23 +288,15 @@ void setup() {
   // Inicialização serial em 115200 baud
   Serial.begin(115200);
 
-  // 1. Pulso de Reset por hardware no display OLED (Pino 8)
-  pinMode(8, OUTPUT);
-  pinMode(10, OUTPUT); // CS como OUTPUT garante modo Master SPI no ATmega328P
-  digitalWrite(8, LOW);
-  delay(30);
-  digitalWrite(8, HIGH);
-  delay(60);
-
-  // 2. Inicializa display U8g2 e força desativação do sleep + contraste máximo
+  // Display: sequência idêntica à versão que já mostrava os olhos (begin() faz o reset pelo pino 8).
   u8g2.begin();
-  u8g2.setPowerSave(0);   // Acorda o display SH1107 (Display ON)
-  u8g2.setContrast(255);  // Brilho máximo do OLED
-  
+  u8g2.setPowerSave(0);
+
   telaW = u8g2.getDisplayWidth();
   telaH = u8g2.getDisplayHeight();
   centroX = telaW / 2;
   centroY = telaH / 2;
+  Serial.print("OLED_DIM:"); Serial.print(telaW); Serial.print("x"); Serial.println(telaH);
 
   // Teste de tela: moldura + texto por 1,5 s (se isto não aparecer, o problema é fiação/driver)
   u8g2.firstPage();
@@ -310,12 +307,9 @@ void setup() {
   } while (u8g2.nextPage());
   delay(1500);
 
-  // 3. Desenha imediatamente o rosto neutro na tela OLED
   expressaoAtual = FACE_NEUTRO;
   atualizarDisplay();
-  Serial.println("OLED_ONLINE_OK");
 
-  // 4. Ativa servos nos novos pinos D0, D1, D4, D5 e assume postura de prontidão
   garantirServosAtivos();
   posturaProntidao();
 
@@ -368,6 +362,19 @@ void loop() {
       expressaoAtual = FACE_SONO;
       atualizarDisplay();
       Serial.println("ACK:FACE_SLEEP");
+    } else if (comando == "CMD:GARRA:OPEN") {
+      garantirServosAtivos();
+      moverSuave(servoGarra, posGarra, GARRA_ABERTA);
+      Serial.println("ACK:GARRA_OPEN");
+    } else if (comando == "CMD:GARRA:CLOSE") {
+      garantirServosAtivos();
+      moverSuave(servoGarra, posGarra, GARRA_FECHADA);
+      Serial.println("ACK:GARRA_CLOSE");
+    } else if (comando.startsWith("CMD:GARRA:")) {
+      int ang = constrain(comando.substring(10).toInt(), 0, 180);
+      garantirServosAtivos();
+      moverSuave(servoGarra, posGarra, ang);
+      Serial.print("ACK:GARRA_"); Serial.println(ang);
     } else if (comando == "CMD:FACE:FOCUS") {
       expressaoAtual = FACE_FOCADO;
       atualizarDisplay();
