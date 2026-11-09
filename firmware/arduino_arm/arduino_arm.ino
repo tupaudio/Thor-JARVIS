@@ -48,8 +48,9 @@
 // SCL/CLK -> D13 | SDA/DIN -> D11 | CS -> D10 | DC -> D9 | RST -> D8 | VCC/GND -> D13
 //
 // Driver do Display OLED 1.5" 128x128 SPI:
-// Controlador original comprovado: SH1107 128x128 SPI 4-Wire (U8g2).
-U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+// Controlador comprovado: SH1107 128x128 SPI 4-Wire (U8g2).
+// Rotação: U8G2_R2 inverte 180 graus para orientar a tela corretamente no suporte físico.
+U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R2, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 
 // ==============================================================================
 // 2. PINOS DOS SERVOS
@@ -351,6 +352,17 @@ void loop() {
       }
       moverSuave(servoBase, posBase, 90, 15);
       Serial.println("ACK:SWEEP_BASE_DONE");
+    } else if (comando == "CMD:OLED:RESET" || comando == "CMD:FACE:RESET") {
+      pinMode(8, OUTPUT);
+      digitalWrite(8, LOW);
+      delay(25);
+      digitalWrite(8, HIGH);
+      delay(50);
+      u8g2.begin();
+      u8g2.setPowerSave(0);
+      u8g2.setContrast(255);
+      atualizarDisplay();
+      Serial.println("ACK:OLED_RESET_DONE");
     } else if (comando == "CMD:FACE:FOCUS") {
       expressaoAtual = FACE_FOCADO;
       atualizarDisplay();

@@ -231,6 +231,8 @@ class SerialCommController:
             cmd = "CMD:FACE:SLEEP"
         elif "FOCADO" in exp:
             cmd = "CMD:FACE:FOCUS"
+        elif "RESET" in exp or "REINICIAR" in exp:
+            cmd = "CMD:OLED:RESET"
 
         if self.conectar():
             self.enviar_comando(cmd, aguardar_ack=False)
