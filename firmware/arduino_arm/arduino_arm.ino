@@ -322,9 +322,11 @@ void posturaProntidao() {
   expressaoAtual = FACE_NEUTRO;
   atualizarDisplay();
 
-  // 1. Diagnóstico da Garra: abre e fecha
-  moverSuave(servoGarra, posGarra, 40, 12);
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 12);
+  // 1. Diagnóstico da Garra: abre amplamente, faz pausa visível e fecha
+  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
+  delay(350); // Pausa visível com a garra totalmente aberta
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+  delay(150);
   relaxarGarra(); // Corta corrente da garra: zero aquecimento!
 
   // 2. Diagnóstico da Base: varredura ampla (130 -> 50 -> 90) em D2 e D6
