@@ -67,12 +67,14 @@ const int PIN_BASE     = 0; // Giro Inferior (D0)  - conflita com USB
 const int PIN_OMBRO    = 1; // Elevação Primária (D1) - conflita com USB
 #else
 const int PIN_BASE     = 2; // Giro Inferior (D2)
+const int PIN_BASE_D6  = 6; // Giro Inferior Espelhado (D6) - caso o pino D2 da shield esteja danificado
 const int PIN_OMBRO    = 3; // Elevação Primária / Ombro (D3)
 #endif
 const int PIN_COTOVELO = 4; // Elevação Secundária / Cotovelo (D4)
 const int PIN_GARRA    = 5; // Garra (D5)
 
 Servo servoBase;
+Servo servoBase6;
 Servo servoOmbro;
 Servo servoCotovelo;
 Servo servoGarra;
@@ -165,6 +167,9 @@ void atualizarDisplay() {
 
 void garantirServosAtivos() {
   if (!servoBase.attached())     servoBase.attach(PIN_BASE);
+#ifndef SERVOS_EM_D0_D1
+  if (!servoBase6.attached())    servoBase6.attach(PIN_BASE_D6);
+#endif
   if (!servoOmbro.attached())    servoOmbro.attach(PIN_OMBRO);
   if (!servoCotovelo.attached()) servoCotovelo.attach(PIN_COTOVELO);
   if (!servoGarra.attached())    servoGarra.attach(PIN_GARRA);
@@ -172,6 +177,9 @@ void garantirServosAtivos() {
 
 void desenergizarServos() {
   servoBase.detach();
+#ifndef SERVOS_EM_D0_D1
+  servoBase6.detach();
+#endif
   servoOmbro.detach();
   servoCotovelo.detach();
   servoGarra.detach();
@@ -187,11 +195,13 @@ void moverSuave(Servo &servo, int &posAtual, int posAlvo, int delayMs = 12) {
   if (posAtual < posAlvo) {
     for (int i = posAtual; i <= posAlvo; i++) {
       servo.write(i);
+      if (&servo == &servoBase && servoBase6.attached()) servoBase6.write(i);
       delay(delayMs);
     }
   } else {
     for (int i = posAtual; i >= posAlvo; i--) {
       servo.write(i);
+      if (&servo == &servoBase && servoBase6.attached()) servoBase6.write(i);
       delay(delayMs);
     }
   }
