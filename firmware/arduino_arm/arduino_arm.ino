@@ -41,28 +41,26 @@
 // A variante SEEED é a que ativa a bomba de carga (Charge Pump) e contraste
 // nos módulos OLED 1.5" chineses GME128128 e genéricos de 7 pinos.
 
-// OPÇÃO A: OLED 1.5" 128x128 SH1107 SEEED Hardware SPI (Padrão Ativo para módulos 1.5" SH1107)
-#define OLED_128X128_SH1107_SEEED_HW_SPI
+// OPÇÃO A (PADRÃO): driver SH1107 128x128 original. É o único que já mostrou os olhos nesta tela.
+#define OLED_128X128_SH1107_HW_SPI
 
-// OPÇÃO B: OLED 1.5" 128x128 SH1107 Padrão Hardware SPI
-// #define OLED_128X128_SH1107_HW_SPI
+// OPÇÃO B: SH1107 SEEED (NÃO funcionou nesta tela: ficou apagada)
+// #define OLED_128X128_SH1107_SEEED_HW_SPI
 
-// OPÇÃO C: OLED 1.5" 128x128 SH1107 SEEED Software SPI (Imune a conflitos de pino SS/SPI)
-// #define OLED_128X128_SH1107_SEEED_SW_SPI
+// OPÇÃO C: SH1107 Pimoroni (use se o rosto aparecer deslocado/cortado com a opção A)
+// #define OLED_128X128_SH1107_PIMORONI_HW_SPI
 
-// OPÇÃO D: OLED 1.5" 128x128 SSD1327 SPI (Módulos tipo Waveshare 1.5" 16 níveis de cinza)
-// #define OLED_128X128_SSD1327_SPI
+// OPÇÃO D: SH1107 original com SPI por software (mesmos pinos; use se a opção A falhar)
+// #define OLED_128X128_SH1107_SW_SPI
 
 #if defined(OLED_128X128_SH1107_SEEED_HW_SPI)
   U8G2_SH1107_SEEED_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-#elif defined(OLED_128X128_SH1107_HW_SPI)
-  U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-#elif defined(OLED_128X128_SH1107_SEEED_SW_SPI)
-  U8G2_SH1107_SEEED_128X128_1_4W_SW_SPI u8g2(U8G2_R0, /* clk=*/ 13, /* data=*/ 11, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-#elif defined(OLED_128X128_SSD1327_SPI)
-  U8G2_SSD1327_WS_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#elif defined(OLED_128X128_SH1107_PIMORONI_HW_SPI)
+  U8G2_SH1107_PIMORONI_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#elif defined(OLED_128X128_SH1107_SW_SPI)
+  U8G2_SH1107_128X128_1_4W_SW_SPI u8g2(U8G2_R0, /* clk=*/ 13, /* data=*/ 11, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 #else
-  U8G2_SH1107_SEEED_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+  U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 #endif
 
 // ==============================================================================
