@@ -104,6 +104,7 @@ Expressao expressaoAtual = FACE_NEUTRO;
 unsigned long ultimoPiscar = 0;
 unsigned long tempoInicioPiscar = 0;
 bool emPiscar = false;
+char nomePersona[16] = "J.A.R.V.I.S.";
 
 // ==============================================================================
 // 3. FUNÇÕES DE DESENHO DO ROSTO ROBÓTICO REALISTA (128x128 SH1107 PIMORONI)
@@ -120,9 +121,11 @@ void desenharMolduraHUD() {
   u8g2.drawLine(111, 123, 123, 123);
   u8g2.drawLine(123, 123, 123, 111);
   
-  // Badge de identificação no topo
+  // Badge de identificação dinâmico no topo (centralizado)
   u8g2.setFont(u8g2_font_4x6_tf);
-  u8g2.drawStr(43, 11, "J.A.R.V.I.S.");
+  int w = u8g2.getStrWidth(nomePersona);
+  int x = (128 - w) / 2;
+  u8g2.drawStr(x, 11, nomePersona);
 }
 
 void desenharNariz() {
@@ -500,6 +503,14 @@ void loop() {
       u8g2.setContrast(255);
       atualizarDisplay();
       Serial.println("ACK:OLED_RESET_DONE");
+    } else if (comando.startsWith("CMD:PERSONA:")) {
+      String p = comando.substring(12);
+      p.trim();
+      if (p.length() > 0 && p.length() < 16) {
+        p.toCharArray(nomePersona, sizeof(nomePersona));
+        atualizarDisplay();
+        Serial.print("ACK:PERSONA_"); Serial.println(nomePersona);
+      }
     } else if (comando == "CMD:FACE:FOCUS") {
       expressaoAtual = FACE_FOCADO;
       atualizarDisplay();

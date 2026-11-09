@@ -189,6 +189,8 @@ class PersonaManager:
                 subtitulo=p["titulo"],
                 icone=p["icone"]
             )
+            if hasattr(hardware, "definir_persona"):
+                hardware.definir_persona(p["nome"])
         except Exception:
             pass
 

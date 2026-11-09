@@ -267,6 +267,14 @@ class SerialCommController:
         sim = self._get_simulator()
         return sim.atualizar_tela(titulo=titulo, subtitulo=subtitulo, icone=icone)
 
+    def definir_persona(self, nome: str):
+        """Envia comando para o Arduino atualizar o nome da persona no topo do display OLED 1.5\"."""
+        if self.conectar():
+            self.enviar_comando(f"CMD:PERSONA:{nome[:15]}", aguardar_ack=False)
+        sim = self._get_simulator()
+        if hasattr(sim, "definir_persona"):
+            sim.definir_persona(nome)
+
     def fechar(self):
         """Encerra a conexão serial com segurança."""
         with self._lock:

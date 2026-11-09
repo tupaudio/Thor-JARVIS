@@ -95,6 +95,10 @@ class HardwareSimulator:
         print(f"│  TÍTULO: {titulo[:35]:<36}│")
         print(f"│  STATUS: {subtitulo[:35]:<36}│")
         print("└" + "─"*46 + "┘\n")
+
+    def definir_persona(self, nome: str):
+        """Simula a atualização do badge da persona no topo do OLED."""
+        print(f"🎭 [SIMULADOR OLED] Badge atualizado para: {nome}")
 try:
     from serial_comm import hardware
 except Exception:
