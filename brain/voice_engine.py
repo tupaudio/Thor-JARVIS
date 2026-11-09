@@ -33,10 +33,37 @@ _RE_MD = re.compile(r"[*_`#>~]+")
 _RE_EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]")
 _RE_BULLET = re.compile(r"(?m)^\s*[•\-–·▪]\s+")
 _RE_SENT = re.compile(r"(?<=[.!?…])\s+")
+_RE_ONOV_ASTERISK = re.compile(r"\*[^*]*(?:whistle|beep|boop|trill|chirp|tweet|bip|apito|assobio|suspira|risos|som|click)[^*]*\*", re.I)
+_RE_ONOV_WORDS = re.compile(r"(?i)\b(beep[s]?|beeping|boop[s]?|whistle[s]?|whistling|trill[s]?|chirp[s]?|tweet[s]?|bipe[s]?|bip[s]?|apito[s]?|assobio[s]?)\b")
+_RE_TRADUCAO = re.compile(r"\[(?:Tradução|Traducao|Translation)?\s*:?\s*(.*?)\]", re.I)
+
+# Normalização fonética para evitar que siglas sejam soletradas letra a letra pelo TTS
+_MAPA_FONETICO = [
+    (re.compile(r"\bT\.?[Aa]\.?[Rr]\.?[Ss]\.?\b", re.I), "Társ"),
+    (re.compile(r"\bT\.?[Rr]\.?[Aa]\.?[Ss]\.?\b", re.I), "Társ"),
+    (re.compile(r"\bJ\.?A\.?R\.?V\.?I\.?S\.?\b", re.I), "Járvis"),
+    (re.compile(r"\bF\.?R\.?I\.?D\.?A\.?Y\.?\b", re.I), "Fráidei"),
+    (re.compile(r"\bG\.?I\.?D\.?E\.?O\.?N\.?\b", re.I), "Gídeon"),
+    (re.compile(r"\bH\.?A\.?L\.?(?:\s*9000)?\b", re.I), "Hál 9000"),
+    (re.compile(r"\bR2-?D2\b", re.I), "R dois D dois"),
+    (re.compile(r"\bC-?3PO\b", re.I), "Cê três Pê ó"),
+    (re.compile(r"\bEDI\b", re.I), "Édi"),
+]
+
+
+def normalizar_fonetica(texto: str) -> str:
+    """Substitui siglas e acrônimos conhecidos por palavras fonéticas que o TTS lê naturalmente."""
+    t = _RE_TRADUCAO.sub(r"\1", texto)
+    t = _RE_ONOV_ASTERISK.sub("", t)
+    t = _RE_ONOV_WORDS.sub("", t)
+    for padrao, subst in _MAPA_FONETICO:
+        t = padrao.sub(subst, t)
+    return t
 
 
 def limpar_para_fala(texto: str) -> str:
-    t = _RE_URL.sub("link", texto)
+    t = normalizar_fonetica(texto)
+    t = _RE_URL.sub("link", t)
     t = _RE_BULLET.sub("", t)
     t = _RE_EMOJI.sub("", t)
     t = _RE_MD.sub("", t)
@@ -157,11 +184,43 @@ class VoiceEngine:
                 print(f"[VOZ AVISO] Erro na fala: {e}")
 
     def _falar(self, geracao: int, texto: str, voz: str, rate: str, pitch: str):
-        falavel = limpar_para_fala(texto)[: self.TEXTO_MAX]
+        from persona_manager import persona_manager
+        p = persona_manager.obter_persona()
+        persona_id = p.get("id", "JARVIS")
+
         dock = None
         if self.audio_output != "local":
             from iphone_dock_server import dock_state as dock
             dock.definir_resposta(texto)          # o HUD mostra o texto completo imediatamente
+
+        # Tratamento especial para R2-D2: emite sons autênticos e remove onomatopeias do TTS
+        tem_r2 = (persona_id == "R2D2") or any(w in texto.lower() for w in ["whistle", "beep", "boop", "trill", "chirp"])
+        texto_para_tts = texto
+
+        if tem_r2:
+            # 1. Gera e publica o áudio procedural autêntico de bipes e apitos do R2-D2
+            audio_r2 = persona_manager.gerar_audio_r2d2(texto)
+            if audio_r2:
+                if self.audio_output == "local":
+                    self._tocar_local(audio_r2)
+                elif dock is not None:
+                    dock.publicar_audio(audio_r2, "🛸 [ÁUDIO ASTROMECH TRANSMITIDO]")
+
+            # 2. Extrai a tradução ou limpa as onomatopeias para a voz nunca falar 'whistle', 'bip'
+            texto_para_tts = normalizar_fonetica(texto)
+            m = re.search(r'\[(?:Tradução|Traducao)?\s*:?\s*(.*?)\]', texto, re.I)
+            if m:
+                texto_para_tts = normalizar_fonetica(m.group(1).strip())
+            else:
+                texto_para_tts = normalizar_fonetica(texto)
+
+            # Se não restou texto útil de fala humana, encerra apenas com o áudio astromech autêntico
+            if not texto_para_tts or len(texto_para_tts.strip()) < 3 or re.match(r"^[\W_]+$", texto_para_tts):
+                if dock is not None:
+                    dock.fim_da_resposta()
+                return
+
+        falavel = limpar_para_fala(texto_para_tts)[: self.TEXTO_MAX]
         for trecho in dividir_em_trechos(falavel):
             if geracao != self._geracao:          # barge-in: abandona o resto
                 return

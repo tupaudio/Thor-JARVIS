@@ -251,19 +251,17 @@ class TelegramBotService:
                 self.responder_callback(cb_id, "Não autorizado.")
                 return
 
-            if data == "cancel_print_confirm":
-                self.responder_callback(cb_id, "Cancelando impressão...")
-                from octoprint_service import octoprint_service
-                ok, msg = octoprint_service.cancelar_impressao()
-                self.enviar_mensagem(f"🛑 *Comando de Cancelamento:* {msg}", chat_id=user_id)
-            elif data == "resume_print_confirm":
-                self.responder_callback(cb_id, "Retomando impressão...")
-                from octoprint_service import octoprint_service
-                ok, msg = octoprint_service.pausar_impressao()
-                self.enviar_mensagem(f"▶️ *Impressão Retomada:* {msg}", chat_id=user_id)
-            elif data == "cancel_print_abort":
-                self.responder_callback(cb_id, "Cancelamento abortado.")
-                self.enviar_mensagem("✅ Cancelamento abortado. A impressão continua ativa.", chat_id=user_id)
+            if data.startswith("dsp:"):          # autorização de ferramenta sensível (dispatcher)
+                partes = data.split(":")
+                from dispatcher import resolver_confirmacao
+                if len(partes) == 3 and partes[2] in ("ok", "no") and resolver_confirmacao(partes[1], partes[2] == "ok"):
+                    self.responder_callback(cb_id, "Autorizado." if partes[2] == "ok" else "Negado.")
+                else:
+                    self.responder_callback(cb_id, "Pedido expirado ou já respondido.")
+            elif data.startswith("pj:"):         # botões de impressão (com nonce, validade e checagem do job)
+                self._tratar_botao_impressao(cb_id, user_id, data)
+            else:
+                self.responder_callback(cb_id, "Botão antigo. Use /cancelar ou /pausar para um novo comando.")
             return
 
         message = update.get("message")
@@ -398,18 +396,30 @@ class TelegramBotService:
 
         if comando == "/pausar":
             from octoprint_service import octoprint_service
-            ok, msg = octoprint_service.pausar_impressao()
+            ok, msg = octoprint_service.alternar_pausa()
             self.enviar_mensagem(f"⏯️ *Impressora 3D:* {msg}", chat_id=chat_id)
             return
 
         if comando == "/cancelar":
-            botoes = [
-                [
-                    {"text": "🛑 Sim, Cancelar Impressão", "callback_data": "cancel_print_confirm"},
-                    {"text": "✅ Não, Manter Ativa", "callback_data": "cancel_print_abort"}
-                ]
-            ]
-            self.enviar_teclado_inline("⚠️ *Atenção:* O senhor deseja realmente cancelar o trabalho de impressão atual da Ender 3 S1 Pro?", botoes, chat_id=chat_id)
+            from octoprint_service import octoprint_service
+            from dispatcher import criar_nonce
+            try:
+                info = octoprint_service.estado_job()
+            except Exception as e:
+                self.enviar_mensagem(f"⚠️ Não consegui consultar o OctoPrint: {self._limpar_erro(e)}", chat_id=chat_id)
+                return
+            if info["estado"] not in ("Printing", "Paused", "Pausing", "Resuming"):
+                self.enviar_mensagem(f"ℹ️ Nenhuma impressão ativa (estado: {info['estado'] or 'desconhecido'}).", chat_id=chat_id)
+                return
+            nonce = criar_nonce("print_job", {"arquivo": info["arquivo"]}, ttl=300)
+            pct = f"{info['pct']:.0f}%" if info.get("pct") is not None else "?"
+            botoes = [[
+                {"text": "🛑 Sim, Cancelar", "callback_data": f"pj:{nonce}:c"},
+                {"text": "✅ Manter", "callback_data": f"pj:{nonce}:n"},
+            ]]
+            self.enviar_teclado_inline(
+                f"⚠️ Cancelar a impressão de `{info['arquivo']}` ({pct})? O botão vale por 5 minutos.",
+                botoes, chat_id=chat_id)
             return
 
         # Indicar que está digitando / gravando áudio no Telegram
@@ -438,6 +448,43 @@ class TelegramBotService:
         except Exception as e:
             print(f"⚠️ [TELEGRAM] Não foi possível enviar áudio de resposta: {e}")
 
+    def _tratar_botao_impressao(self, cb_id: str, user_id: str, data: str):
+        """pj:<nonce>:c (cancelar) | r (retomar) | n (manter). Nonce de uso único; confere se o job é o mesmo."""
+        from dispatcher import consumir_nonce
+        from octoprint_service import octoprint_service
+        partes = data.split(":")
+        if len(partes) != 3 or partes[2] not in ("c", "r", "n"):
+            self.responder_callback(cb_id, "Botão inválido.")
+            return
+        dados = consumir_nonce(partes[1], "print_job")
+        if dados is None:
+            self.responder_callback(cb_id, "Botão expirado ou já usado.")
+            self.enviar_mensagem("⌛ Esse botão expirou ou já foi usado. Envie /cancelar ou /pausar para um novo comando.", chat_id=user_id)
+            return
+        if partes[2] == "n":
+            self.responder_callback(cb_id, "Mantida.")
+            self.enviar_mensagem("✅ Nada foi alterado. A impressão continua.", chat_id=user_id)
+            return
+        try:
+            info = octoprint_service.estado_job()
+        except Exception as e:
+            self.responder_callback(cb_id, "OctoPrint inacessível.")
+            self.enviar_mensagem(f"⚠️ Não consegui consultar o OctoPrint: {self._limpar_erro(e)}. Nada foi feito.", chat_id=user_id)
+            return
+        if info["arquivo"] != dados.get("arquivo"):
+            self.responder_callback(cb_id, "O trabalho mudou.")
+            self.enviar_mensagem(f"⚠️ O trabalho atual (`{info['arquivo'] or 'nenhum'}`) não é o do alerta "
+                                 f"(`{dados.get('arquivo')}`). Nada foi feito.", chat_id=user_id)
+            return
+        if partes[2] == "c":
+            self.responder_callback(cb_id, "Cancelando...")
+            ok, msg = octoprint_service.cancelar_impressao()
+            self.enviar_mensagem(f"🛑 *Cancelamento:* {msg}", chat_id=user_id)
+        else:
+            self.responder_callback(cb_id, "Retomando...")
+            ok, msg = octoprint_service.retomar_impressao()
+            self.enviar_mensagem(f"▶️ *Retomada:* {msg}", chat_id=user_id)
+
     def _tratar_seguro(self, update: dict):
         try:
             self.tratar_atualizacao(update)
@@ -459,6 +506,12 @@ class TelegramBotService:
 
     def despachar_update(self, update: dict):
         """Enfileira a mensagem na fila FIFO exclusiva do chat para evitar inversão de ordem."""
+        cb = update.get("callback_query") or {}
+        if str(cb.get("data", "")).startswith("dsp:"):
+            # Autorização de ferramenta: NÃO pode entrar na fila FIFO do chat, pois o handler que a
+            # solicitou está bloqueado esperando exatamente este toque (impasse até o TTL).
+            threading.Thread(target=self._tratar_seguro, args=(update,), daemon=True, name="tg-autorizacao").start()
+            return
         msg = update.get("message") or update.get("callback_query", {}).get("message", {})
         chat_id = str(msg.get("chat", {}).get("id") or "global")
         with self._queues_lock:

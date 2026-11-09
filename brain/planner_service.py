@@ -1,116 +1,131 @@
 """
-Módulo de Planejamento Hierárquico Multi-Etapas (Planner / ReAct Loop) do J.A.R.V.I.S.
-Inspirado na arquitetura do OpenJarvis (Stanford).
+planner_service.py — Planejador multi-etapas do J.A.R.V.I.S. (versão 2, segura).
 
-Permite decompor instruções compostas ou condicionais do usuário
-(ex: "verifique se a impressão terminou, se sim desligue a tomada e me envie uma foto no Telegram")
-em um grafo ordenado de sub-tarefas executadas sequencialmente com validação de pré-condições.
+Correções em relação à versão anterior:
+  * O plano é gerado por uma chamada SEM ferramentas e SEM histórico (gemini_session.gerar_json).
+    Antes o prompt ia ao chat com function calling ligado: o modelo podia executar as ferramentas
+    durante o "planejamento" e o planejador as executava de novo (execução em dobro).
+  * As condições são avaliadas POR CÓDIGO sobre o resultado dos passos anteriores
+    (campo "se": {"passo": N, "contem": "texto"} ou {"passo": N, "nao_contem": "texto"}).
+    Antes o campo `condicao_dependente` era só texto e todos os passos rodavam.
+  * Toda ferramenta passa por dispatcher.despachar(origem="planner"): ações físicas/externas exigem
+    autorização do dono no Telegram.
+  * Só ferramentas registradas, no máximo 5 passos, e só roda com JARVIS_PLANNER=1 (padrão: desligado).
+  * Gatilhos mais estreitos ("depois de" sozinho não dispara mais; pegava "depois de amanhã").
 """
 
-import re
 import json
 import logging
-from typing import Any
+import os
+import re
 
 logger = logging.getLogger("jarvis-planner")
+
+MAX_PASSOS = 5
 
 
 class PlannerService:
     def __init__(self):
-        self._conectores_compostos = [
-            r"\b(e depois|em seguida|logo apos|logo após|depois de|depois disso)\b",
-            r"\b(se\s+.+\s+(?:entao|então|desligue|ligue|avise|mande|cancele))\b",
-            r"\b(primeiro\s+.+\s+depois)\b",
-            r"\b(alem disso|além disso|tambem|também)\s+(?:ligue|desligue|verifique|tire|mande)\b"
+        self._conectores = [
+            r"\b(e depois|em seguida|logo apos|logo após|depois disso)\b",
+            r"\bprimeiro\b.+\bdepois\b",
+            r"\bse\b.+\b(entao|então)\b",
+            r"\bse\b.+,\s*(desligue|ligue|avise|mande|cancele|pause|retome|me envie|envie)\b",
         ]
 
+    def habilitado(self) -> bool:
+        return os.getenv("JARVIS_PLANNER", "0").strip() == "1"
+
     def eh_instrucao_composta(self, texto: str) -> bool:
-        """Identifica se uma solicitação contém múltiplos passos ou regras condicionais."""
-        t = texto.strip().lower()
-        if len(t) < 15:
+        if not self.habilitado():
             return False
-        return any(re.search(rx, t) for rx in self._conectores_compostos)
+        t = (texto or "").strip().lower()
+        if len(t) < 20:
+            return False
+        return any(re.search(rx, t) for rx in self._conectores)
 
-    def decompor_e_executar(self, instrucao: str, timeout_passo: float = 20.0) -> str:
-        """
-        Decompõe a instrução em etapas estruturadas e as executa ordenadamente,
-        alimentando os resultados de passos anteriores para os passos subsequentes.
-        """
-        logger.info(f"Decompondo instrução complexa: {instrucao}")
-        
-        # 1. Solicita ao modelo (Gemini ou provedor ativo) o plano em formato JSON estrito
-        prompt_planner = (
-            "Você é o Planejador Tático do J.A.R.V.I.S. (Planner Loop / OpenJarvis).\n"
-            "O usuário deu uma instrução composta que requer múltiplos passos sequenciais ou condicionais.\n"
-            "Decomponha esta instrução em uma lista estrita de etapas JSON no seguinte formato:\n"
-            "[\n"
-            "  {\n"
-            '    "passo": 1,\n'
-            '    "descricao": "Verificar status da impressora",\n'
-            '    "ferramenta": "consultar_status_impressora_3d",\n'
-            '    "argumentos": {}\n'
-            "  },\n"
-            "  {\n"
-            '    "passo": 2,\n'
-            '    "descricao": "Se temperatura da mesa <= 50, desligar a tomada",\n'
-            '    "ferramenta": "controlar_dispositivos_casa_inteligente",\n'
-            '    "argumentos": {"dispositivo": "tomada da impressora", "acao": "desligar"},\n'
-            '    "condicao_dependente": "apenas se o passo 1 indicar conclusao ou temperatura segura"\n'
-            "  }\n"
-            "]\n\n"
-            f"Instrução do usuário: \"{instrucao}\"\n\n"
-            "Responda ESTRITAMENTE com a array JSON, sem markdown nem comentários extras:"
+    # ------------------------------------------------------------------ plano
+    def _prompt_plano(self, instrucao: str) -> str:
+        from dispatcher import listar_ferramentas
+        catalogo = "\n".join(f"- {n}: {d}" for n, _r, d in sorted(listar_ferramentas()))
+        return (
+            "Você é o planejador do J.A.R.V.I.S. Decomponha a instrução em até "
+            f"{MAX_PASSOS} passos usando SOMENTE as ferramentas da lista.\n"
+            "Responda com uma array JSON. Cada passo: "
+            '{"passo": 1, "ferramenta": "nome", "argumentos": {}, '
+            '"se": {"passo": 1, "contem": "texto"}}.\n'
+            'O campo "se" é opcional e só pode olhar passos ANTERIORES; use "contem" ou "nao_contem" com um trecho '
+            "curto que apareceria na resposta da ferramenta do passo referido. "
+            "Não invente ferramentas. Se a instrução não precisar de várias etapas, responda [].\n\n"
+            f"Ferramentas:\n{catalogo}\n\n"
+            f'Instrução do usuário: "{instrucao}"'
         )
 
+    def _validar(self, etapas) -> list:
+        from dispatcher import existe
+        if not isinstance(etapas, list):
+            return []
+        validas = []
+        for et in etapas[:MAX_PASSOS]:
+            if not isinstance(et, dict) or not existe(str(et.get("ferramenta", ""))):
+                logger.warning(f"Plano descartado: passo inválido {et!r}")
+                return []                      # plano com ferramenta inventada não é executado
+            args = et.get("argumentos") or {}
+            if not isinstance(args, dict):
+                return []
+            validas.append({"passo": int(et.get("passo", len(validas) + 1)), "ferramenta": et["ferramenta"],
+                            "argumentos": args, "se": et.get("se")})
+        return validas
+
+    @staticmethod
+    def _condicao_ok(et: dict, resultados: dict) -> bool:
+        c = et.get("se")
+        if not c:
+            return True
+        if not isinstance(c, dict) or c.get("passo") not in resultados:
+            return False                       # condição que não dá para verificar = não executa
+        ref = str(resultados[c["passo"]]).lower()
+        if "contem" in c:
+            return str(c["contem"]).lower() in ref
+        if "nao_contem" in c:
+            return str(c["nao_contem"]).lower() not in ref
+        return False
+
+    # ------------------------------------------------------------------ execução
+    def decompor_e_executar(self, instrucao: str) -> str:
+        """Devolve a resposta final, ou '' para deixar o fluxo normal (turno único) responder."""
         try:
             from gemini_session import gemini_session
-            plano_raw = gemini_session.enviar(prompt_planner, origem="planner", timeout=25.0)
-            
-            # Limpa delimitadores de código
-            limpo = re.sub(r"^```(?:json)?\s*", "", plano_raw.strip())
-            limpo = re.sub(r"\s*```$", "", limpo)
-            etapas = json.loads(limpo)
-            
-            if not isinstance(etapas, list) or not etapas:
-                return ""  # deixa o fluxo normal de turno único processar
+            etapas = self._validar(json.loads(gemini_session.gerar_json(self._prompt_plano(instrucao))))
         except Exception as e:
-            logger.warning(f"Não foi possível gerar plano estruturado via LLM ({e}). Seguindo fluxo padrão.")
+            logger.warning(f"Planejamento indisponível ({e}); seguindo o fluxo normal.")
             return ""
+        if len(etapas) < 2:
+            return ""                          # não era composta de verdade
 
-        # 2. Executa as etapas sequencialmente
-        from jarvis_tools import JARVIS_TOOLS
-        mapa_ferramentas = {f.__name__: f for f in JARVIS_TOOLS}
-        
-        historico_execucao = []
-        for i, etapa in enumerate(etapas[:5]):  # Limite de segurança de 5 etapas por plano
-            nome_tool = etapa.get("ferramenta")
-            args = etapa.get("argumentos", {})
-            desc = etapa.get("descricao", f"Passo {i+1}")
-            
-            fn = mapa_ferramentas.get(nome_tool)
-            if not fn:
+        from dispatcher import despachar
+        resultados, linhas = {}, []
+        for et in etapas:
+            n = et["passo"]
+            if not self._condicao_ok(et, resultados):
+                resultados[n] = "(pulado: condição não satisfeita)"
+                linhas.append(f"Passo {n} ({et['ferramenta']}): pulado, condição não satisfeita.")
                 continue
-
             try:
-                print(f"▶️ [PLANNER] Executando Passo {i+1}: {desc} ({nome_tool})")
-                res = fn(**args) if args else fn()
-                historico_execucao.append(f"Passo {i+1} ({desc}): {res}")
-            except Exception as e_step:
-                historico_execucao.append(f"Passo {i+1} ({desc}) falhou: {e_step}")
+                res = despachar(et["ferramenta"], et["argumentos"], origem="planner")
+            except Exception as e:
+                resultados[n] = f"erro: {e}"
+                linhas.append(f"Passo {n} ({et['ferramenta']}) falhou: {e}")
                 break
+            resultados[n] = res
+            linhas.append(f"Passo {n} ({et['ferramenta']}): {res}")
 
-        # 3. Sintetiza a resposta final para o usuário no estilo J.A.R.V.I.S.
-        prompt_sintese = (
-            f"O usuário solicitou: \"{instrucao}\"\n"
-            "As etapas planejadas foram executadas com os seguintes resultados:\n"
-            + "\n".join(historico_execucao) + "\n\n"
-            "Sintetize uma resposta verbal formal, concisa e direta para o usuário no estilo do J.A.R.V.I.S. (1 a 2 frases):"
-        )
         try:
-            from gemini_session import gemini_session
-            return gemini_session.enviar(prompt_sintese, origem="planner", timeout=20.0)
+            return gemini_session.gerar_texto(
+                f'O usuário pediu: "{instrucao}"\nResultados das etapas:\n' + "\n".join(linhas) +
+                "\n\nResuma em 1 ou 2 frases formais no estilo J.A.R.V.I.S., dizendo o que foi feito e o que foi pulado.")
         except Exception:
-            return "Plano concluído com sucesso, senhor. " + " ".join(historico_execucao[:2])
+            return "Plano executado, senhor. " + " ".join(linhas[:3])
 
 
 planner_service = PlannerService()

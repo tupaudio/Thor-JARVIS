@@ -41,6 +41,7 @@ class _Job:
     texto: str = field(compare=False)
     futuro: Future = field(compare=False)
     cancelado: bool = field(default=False, compare=False)
+    origem: str = field(default="cli", compare=False)
 
 
 def _obter_status_code(e: Exception):
@@ -232,6 +233,8 @@ class GeminiSession:
                 except Exception:
                     pass
 
+                from dispatcher import contexto_origem
+                contexto_origem.set(job.origem)   # o portão de ferramentas precisa saber quem pediu
                 resposta = self._enviar_com_recuperacao(texto_envio)
                 job.futuro.set_result(resposta)
 
@@ -259,7 +262,7 @@ class GeminiSession:
         if self._fila.qsize() >= self._fila_max:
             return "Estou com muitos pedidos em fila, senhor. Aguarde um instante e repita."
         self._garantir_worker()
-        job = _Job(PRIORIDADES.get(origem, 1), next(self._seq), texto, Future())
+        job = _Job(PRIORIDADES.get(origem, 1), next(self._seq), texto, Future(), origem=origem)
         self._fila.put(job)
         try:
             return job.futuro.result(timeout=timeout)
@@ -280,6 +283,32 @@ class GeminiSession:
                     continue
                 raise
         return ""
+
+    def _gerar_avulso(self, contents, config, tentativas: int = 2) -> str:
+        """Chamada sem estado, SEM ferramentas e SEM histórico (não passa pelo chat nem pela fila)."""
+        for i in range(tentativas):
+            try:
+                client = self._garantir_client()
+                r = client.models.generate_content(model=self._modelo_primario, contents=contents, config=config)
+                return (r.text or "").strip()
+            except Exception as e:
+                if _cliente_fechado(e) and i + 1 < tentativas:
+                    self._garantir_client(forcar=True)
+                    continue
+                raise
+        return ""
+
+    def gerar_json(self, prompt: str) -> str:
+        """Resposta estritamente JSON, temperatura 0, sem ferramentas (usado pelo planejador)."""
+        from google.genai import types
+        cfg = types.GenerateContentConfig(response_mime_type="application/json", temperature=0)
+        return self._gerar_avulso(prompt, cfg)
+
+    def gerar_texto(self, prompt: str) -> str:
+        """Texto curto sem ferramentas e sem histórico (usado para sintetizar respostas do planejador)."""
+        from google.genai import types
+        cfg = types.GenerateContentConfig(temperature=0.3)
+        return self._gerar_avulso(prompt, cfg)
 
     def status(self) -> dict:
         return {"modelo": self._modelo_atual, "fila": self._fila.qsize(),

@@ -5,7 +5,15 @@ Expondo telemetria, visão, impressora 3D (Ender 3 S1 Pro) e automação IoT
 para qualquer cliente MCP (Cursor, Claude Desktop, Antigravity, OpenJarvis, VS Code).
 
 Opera via JSON-RPC 2.0 em stdio (padrão oficial MCP) sem dependências externas obrigatórias,
-com suporte automático a FastMCP caso a biblioteca 'mcp' esteja instalada no ambiente.
+Implementação própria e mínima (initialize, ping, tools/list, tools/call); não usa o SDK 'mcp'.
+
+SEGURANÇA / LIMITES (v3):
+  * stdout é reservado ao protocolo: todo print() dos serviços importados é desviado para stderr.
+  * Ferramentas FÍSICAS ficam DESATIVADAS por padrão: JARVIS_MCP_ALLOW_PHYSICAL=1 libera pausar/retomar/IoT;
+    JARVIS_MCP_ALLOW_CANCEL=1 libera também o cancelamento. Este processo NÃO consegue pedir a
+    confirmação por botão do Telegram (os toques chegam ao daemon, outro processo): por isso o padrão é bloquear.
+  * Este processo é separado do daemon: a câmera é lida do daemon por loopback; sentinela e IoT refletem
+    o estado DESTE processo. O caminho definitivo é o MCP virar cliente HTTP autenticado do daemon.
 """
 
 import sys
@@ -22,6 +30,21 @@ if _DIR not in sys.path:
 # Configura logging para stderr para não poluir o stdout (utilizado pelo protocolo JSON-RPC)
 logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(asctime)s [JARVIS-MCP] %(levelname)s: %(message)s")
 logger = logging.getLogger("jarvis-mcp")
+
+# O protocolo usa o stdout ORIGINAL. Qualquer print() de serviço importado (serial, IoT, OctoPrint...)
+# passa a ir para o stderr; antes corrompia o fluxo JSON-RPC.
+_PROTO_OUT = sys.stdout
+sys.stdout = sys.stderr
+
+FERRAMENTAS_FISICAS = {"pausar_impressao_3d", "retomar_impressao_3d", "controlar_dispositivo_iot", "cancelar_impressao_3d"}
+
+
+def _permitida(nome: str) -> bool:
+    if nome == "cancelar_impressao_3d":
+        return os.getenv("JARVIS_MCP_ALLOW_CANCEL", "0") == "1" and os.getenv("JARVIS_MCP_ALLOW_PHYSICAL", "0") == "1"
+    if nome in FERRAMENTAS_FISICAS:
+        return os.getenv("JARVIS_MCP_ALLOW_PHYSICAL", "0") == "1"
+    return True
 
 
 # ==============================================================================
@@ -105,11 +128,31 @@ def tool_status_impressora_3d() -> dict:
         return {"status": "offline_ou_erro", "erro": str(e)}
 
 
+def _snapshot_do_daemon():
+    """O MCP roda em outro processo: busca o quadro no daemon por loopback (sem token no loopback)."""
+    try:
+        import requests, urllib3
+        urllib3.disable_warnings()
+    except Exception:
+        return None
+    https = os.getenv("DOCK_HTTPS_PORT", "8443")
+    http = os.getenv("DOCK_HTTP_PORT", "8080")
+    for url, verify in ((f"https://127.0.0.1:{https}/camera/snapshot.jpg", False),
+                        (f"http://127.0.0.1:{http}/camera/snapshot.jpg", True)):
+        try:
+            r = requests.get(url, timeout=4, verify=verify)
+            if r.status_code == 200 and r.content[:2] == b"\xff\xd8":
+                return r.content
+        except Exception:
+            continue
+    return None
+
+
 def tool_capturar_foto_bancada(incluir_base64: bool = False) -> dict:
     """Captura uma foto recente da câmera do dock ou webcam e retorna status e caminho (ou base64)."""
     try:
         from camera_manager import camera_manager
-        jpg = camera_manager.obter_ultimo_jpeg_remoto(max_age_sec=20.0)
+        jpg = _snapshot_do_daemon() or camera_manager.obter_ultimo_jpeg_remoto(max_age_sec=20.0)
         caminho = None
         if not jpg:
             caminho = camera_manager.capturar_foto()
@@ -157,10 +200,20 @@ def tool_controlar_dispositivo_iot(dispositivo: str, ligar: bool) -> dict:
 
 
 def tool_pausar_impressao_3d() -> dict:
-    """Pausa ou retoma o trabalho de impressão ativo na Ender 3 S1 Pro."""
+    """Pausa (somente pausa) o trabalho de impressão ativo na Ender 3 S1 Pro."""
     try:
         from octoprint_service import octoprint_service
         ok, msg = octoprint_service.pausar_impressao()
+        return {"sucesso": ok, "mensagem": msg}
+    except Exception as e:
+        return {"sucesso": False, "erro": str(e)}
+
+
+def tool_retomar_impressao_3d() -> dict:
+    """Retoma (somente retoma) um trabalho pausado na Ender 3 S1 Pro."""
+    try:
+        from octoprint_service import octoprint_service
+        ok, msg = octoprint_service.retomar_impressao()
         return {"sucesso": ok, "mensagem": msg}
     except Exception as e:
         return {"sucesso": False, "erro": str(e)}
@@ -183,7 +236,8 @@ def tool_consultar_sentinela() -> dict:
         return {
             "ativo": sentinel_service.is_ativo(),
             "status": sentinel_service.consultar_status(),
-            "eventos_recentes": list(sentinel_service.eventos_registrados[-10:])
+            "eventos_recentes": list(sentinel_service.eventos_registrados[-10:]),
+            "aviso": "Estado lido no processo MCP; pode divergir do daemon principal."
         }
     except Exception as e:
         return {"erro": str(e)}
@@ -252,7 +306,7 @@ MCP_TOOLS = [
     },
     {
         "name": "controlar_dispositivo_iot",
-        "description": "Liga ou desliga um dispositivo inteligente pelo nome. Possui trava de segurança para a tomada da impressora.",
+        "description": "Liga ou desliga um dispositivo inteligente pelo nome (trava de segurança na tomada da impressora). Desativada por padrão (JARVIS_MCP_ALLOW_PHYSICAL=1).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -265,13 +319,19 @@ MCP_TOOLS = [
     },
     {
         "name": "pausar_impressao_3d",
-        "description": "Pausa ou retoma a impressão 3D ativa na Ender 3 S1 Pro.",
+        "description": "Pausa a impressão 3D ativa (só pausa; idempotente). Desativada por padrão (JARVIS_MCP_ALLOW_PHYSICAL=1).",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
         "fn": tool_pausar_impressao_3d
     },
     {
+        "name": "retomar_impressao_3d",
+        "description": "Retoma uma impressão pausada (só retoma; idempotente). Desativada por padrão (JARVIS_MCP_ALLOW_PHYSICAL=1).",
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+        "fn": tool_retomar_impressao_3d
+    },
+    {
         "name": "cancelar_impressao_3d",
-        "description": "Cancela a impressão 3D ativa no OctoPrint.",
+        "description": "Cancela a impressão 3D ativa. DESTRUTIVA e irreversível. Desativada por padrão (exige JARVIS_MCP_ALLOW_CANCEL=1 e JARVIS_MCP_ALLOW_PHYSICAL=1).",
         "inputSchema": {"type": "object", "properties": {}, "required": []},
         "fn": tool_cancelar_impressao_3d
     },
@@ -326,8 +386,8 @@ _TOOL_MAP = {t["name"]: t["fn"] for t in MCP_TOOLS}
 def responder_json(obj: dict):
     """Envia uma mensagem JSON-RPC para stdout terminada por newline."""
     raw = json.dumps(obj, ensure_ascii=False)
-    sys.stdout.write(raw + "\n")
-    sys.stdout.flush()
+    _PROTO_OUT.write(raw + "\n")
+    _PROTO_OUT.flush()
 
 
 def executar_stdio():
@@ -335,8 +395,8 @@ def executar_stdio():
     try:
         if hasattr(sys.stdin, "reconfigure"):
             sys.stdin.reconfigure(encoding="utf-8-sig")
-        if hasattr(sys.stdout, "reconfigure"):
-            sys.stdout.reconfigure(encoding="utf-8")
+        if hasattr(_PROTO_OUT, "reconfigure"):
+            _PROTO_OUT.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
@@ -355,9 +415,18 @@ def executar_stdio():
             })
             continue
 
+        if not isinstance(req, dict):          # ex.: [] ou 1 — antes derrubava o servidor
+            responder_json({"jsonrpc": "2.0", "id": None,
+                            "error": {"code": -32600, "message": "Invalid Request: esperado um objeto JSON"}})
+            continue
         req_id = req.get("id")
         method = req.get("method", "")
-        params = req.get("params", {})
+        params = req.get("params") or {}
+        if not isinstance(params, dict):
+            if req_id is not None:
+                responder_json({"jsonrpc": "2.0", "id": req_id,
+                                "error": {"code": -32602, "message": "Invalid params: esperado um objeto"}})
+            continue
 
         # 1. initialize
         if method == "initialize":
@@ -390,7 +459,7 @@ def executar_stdio():
                     "description": t["description"],
                     "inputSchema": t["inputSchema"]
                 }
-                for t in MCP_TOOLS
+                for t in MCP_TOOLS if _permitida(t["name"])
             ]
             responder_json({
                 "jsonrpc": "2.0",
@@ -401,8 +470,18 @@ def executar_stdio():
         # 5. tools/call
         elif method == "tools/call":
             tool_name = params.get("name", "")
-            args = params.get("arguments", {})
+            args = params.get("arguments") or {}
             fn = _TOOL_MAP.get(tool_name)
+            if fn and not _permitida(tool_name):
+                responder_json({"jsonrpc": "2.0", "id": req_id, "result": {
+                    "content": [{"type": "text", "text": "Ferramenta física desativada neste servidor MCP. "
+                                 "O dono precisa liberá-la no ambiente (JARVIS_MCP_ALLOW_PHYSICAL / JARVIS_MCP_ALLOW_CANCEL)."}],
+                    "isError": True}})
+                continue
+            if not isinstance(args, dict):
+                responder_json({"jsonrpc": "2.0", "id": req_id,
+                                "error": {"code": -32602, "message": "Invalid params: 'arguments' deve ser um objeto"}})
+                continue
             if not fn:
                 responder_json({
                     "jsonrpc": "2.0",

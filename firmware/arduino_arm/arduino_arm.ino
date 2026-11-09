@@ -1,34 +1,40 @@
 /*
  * ==============================================================================
- * J.A.R.V.I.S. - Firmware Completo: Braco Robotico + Rosto Robotico no OLED 1.5"
- * Placa: Arduino UNO R3 + Sensor Shield V5.0
- * Display: OLED 1.5" 128x128 SPI (Driver SH1107 - GME128128-01-SPI Ver 3.1)
+ * J.A.R.V.I.S. - Firmware Oficial: Braço Robótico 4-DOF + Rosto Robótico no OLED
+ * Placa: Arduino UNO R3 (ou Nano) + Sensor Shield V5.0
+ * Suporta Telas: OLED 128x64 (SSD1306 / SH1106) e 128x128 (SH1107 / SSD1327)
  * ==============================================================================
- * 
- * ESQUEMA DE LIGACAO DOS PINOS (Na Sensor Shield V5.0):
- * 
- * [ DISPLAY OLED 1.5" SH1107 SPI (7 Pinos) ]:
- * - VCC  -> 3.3V ou 5V (Conforme serigrafia do modulo)
+ *
+ * ESQUEMA DE LIGAÇÃO DOS PINOS (Conexões Atualizadas do Usuário):
+ *
+ * [ SERVOMOTORES SG90 DO BRAÇO 4-DOF ]:
+ * - Pino Digital 0 (D0): Servo da Base (Giro Inferior)
+ * - Pino Digital 1 (D1): Servo da Elevação Primária (Ombro)
+ * - Pino Digital 4 (D4): Servo da Elevação Secundária (Cotovelo)
+ * - Pino Digital 5 (D5): Servo da Garra
+ *
+ * ⚠️ ATENÇÃO TÉCNICA SOBRE PINOS D0 E D1 NO ARDUINO UNO:
+ * - Os pinos D0 e D1 são fisicamente compartilhados com a UART Serial (RX/TX) da USB.
+ * - Ao enviar comandos seriais em alta taxa (115200 baud), os servos em D0/D1 podem
+ *   apresentar pequeno tremor (jitter) se a USB estiver transmitindo continuamente.
+ * - O código abaixo gerencia a attach/detach automática e suave para mitigar esse ruído.
+ *
+ * [ DISPLAY OLED (SPI 7 Pinos) ]:
+ * - VCC  -> 3.3V ou 5V (conforme serigrafia do módulo)
  * - GND  -> GND (Trilha G)
  * - DIN  -> Pino Digital 11 (MOSI - Hardware SPI)
  * - CLK  -> Pino Digital 13 (SCK - Hardware SPI)
  * - CS   -> Pino Digital 10 (Chip Select)
  * - DC   -> Pino Digital 9  (Data / Command)
  * - RST  -> Pino Digital 8  (Reset)
- * 
- * [ SERVOMOTORES SG90 DO BRACO 4-DOF ]:
- * - Pino Digital 2: Servo da Base (Giro)
- * - Pino Digital 3: Servo do Ombro
- * - Pino Digital 4: Servo do Cotovelo
- * - Pino Digital 5: Servo da Garra
- * 
- * ATENCAO ELETRICA:
+ *
+ * ATENÇÃO ELÉTRICA:
  * - Remova o jumper 'SEL' da Sensor Shield V5.0.
- * - Ligue a fonte externa regulada 5V 3A no borne azul de parafuso para os servos!
- * - Garanta GND comum entre a fonte externa e o Arduino.
- * 
- * BIBLIOTECA NECESSARIA NO ARDUINO IDE:
- * - 'U8g2' de olikraus (Instalar pelo Gerenciador de Bibliotecas)
+ * - Conecte fonte externa de 5V 3A nos bornes azuis para alimentar os servos!
+ * - Garanta GND COMUM entre Arduino e Fonte Externa.
+ *
+ * BIBLIOTECA NECESSÁRIA NO ARDUINO IDE:
+ * - 'U8g2' de olikraus (Instalar pelo Library Manager)
  */
 
 #include <Arduino.h>
@@ -36,26 +42,55 @@
 #include <SPI.h>
 #include <Servo.h>
 
-// Construtor U8g2 para SH1107 128x128 SPI em modo Page Buffer (~128 bytes RAM no UNO)
-U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+// ==============================================================================
+// 1. SELEÇÃO DO MODELO E RESOLUÇÃO DO DISPLAY OLED
+// ==============================================================================
+// Descomente apenas UMA das opções abaixo correspondente ao seu display físico:
 
-// Servos
+// OPÇÃO A: OLED 128x64 SSD1306 SPI 0.96" (Mais comum em kits de robótica)
+#define OLED_128X64_SSD1306_SPI
+
+// OPÇÃO B: OLED 128x64 SH1106 SPI 1.3"
+// #define OLED_128X64_SH1106_SPI
+
+// OPÇÃO C: OLED 128x128 SH1107 SPI 1.5" (GME128128)
+// #define OLED_128X128_SH1107_SPI
+
+// OPÇÃO D: OLED 128x64 SSD1306 I2C (Pinos A4=SDA, A5=SCL)
+// #define OLED_128X64_SSD1306_I2C
+
+#if defined(OLED_128X64_SSD1306_SPI)
+  U8G2_SSD1306_128X64_NONAME_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#elif defined(OLED_128X64_SH1106_SPI)
+  U8G2_SH1106_128X64_NONAME_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#elif defined(OLED_128X128_SH1107_SPI)
+  U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#elif defined(OLED_128X64_SSD1306_I2C)
+  U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+#else
+  // Fallback padrão adaptativo
+  U8G2_SSD1306_128X64_NONAME_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#endif
+
+// ==============================================================================
+// 2. PINOS DOS SERVOS (REMAPEADOS CONFORME SOLICITADO PELO USUÁRIO)
+// ==============================================================================
+const int PIN_BASE     = 0; // Giro Inferior (D0)
+const int PIN_OMBRO    = 1; // Elevação Primária / Ombro (D1)
+const int PIN_COTOVELO = 4; // Elevação Secundária / Cotovelo (D4)
+const int PIN_GARRA    = 5; // Garra (D5)
+
 Servo servoBase;
 Servo servoOmbro;
 Servo servoCotovelo;
 Servo servoGarra;
-
-const int PIN_BASE     = 2;
-const int PIN_OMBRO    = 3;
-const int PIN_COTOVELO = 4;
-const int PIN_GARRA    = 5;
 
 int posBase     = 90;
 int posOmbro    = 90;
 int posCotovelo = 90;
 int posGarra    = 30;
 
-// Estados das Expressões Faciais
+// Estados das Expressões Faciais do J.A.R.V.I.S.
 enum Expressao {
   FACE_NEUTRO,
   FACE_PISCANDO,
@@ -70,37 +105,64 @@ unsigned long ultimoPiscar = 0;
 unsigned long tempoInicioPiscar = 0;
 bool emPiscar = false;
 
+// Variáveis de geometria de tela dinâmicas (calculadas no setup)
+int telaW = 128;
+int telaH = 64;
+int centroX = 64;
+int centroY = 32;
+
 // ==============================================================================
-// FUNÇÕES DE DESENHO DO ROSTO ROBÓTICO (Procedural Vector Eyes)
+// 3. FUNÇÕES GRÁFICAS AUTOCENTRALIZADAS E ADAPTATIVAS (128x64 ou 128x128)
 // ==============================================================================
 
 void desenharOlhos(int alturaOlho, int raioBorda, int deslocX = 0, int deslocY = 0) {
-  // Olho Esquerdo: centro em x=42, y=64
-  // Olho Direito:  centro em x=86, y=64
-  int largura = 32;
-  int yTop = 64 - (alturaOlho / 2) + deslocY;
+  // Proporções dinâmicas conforme a altura da tela
+  int largOlho = (telaH <= 64) ? 26 : 32;
+  int separacao = (telaH <= 64) ? 22 : 26;
   
-  u8g2.drawRBox(42 - (largura / 2) + deslocX, yTop, largura, alturaOlho, raioBorda);
-  u8g2.drawRBox(86 - (largura / 2) + deslocX, yTop, largura, alturaOlho, raioBorda);
+  int xEsq = centroX - separacao + deslocX;
+  int xDir = centroX + separacao + deslocX;
+  int yTop = centroY - (alturaOlho / 2) + deslocY;
+
+  // Garante que não ultrapasse as bordas da tela
+  if (yTop < 0) yTop = 0;
+  if (yTop + alturaOlho > telaH) alturaOlho = telaH - yTop;
+
+  u8g2.drawRBox(xEsq - (largOlho / 2), yTop, largOlho, alturaOlho, raioBorda);
+  u8g2.drawRBox(xDir - (largOlho / 2), yTop, largOlho, alturaOlho, raioBorda);
 }
 
 void desenharFaceFeliz() {
-  // Dois arcos sorridentes estilizados (^)
-  u8g2.drawDisc(42, 60, 18, U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT);
-  u8g2.drawDisc(86, 60, 18, U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT);
+  int raio = (telaH <= 64) ? 12 : 18;
+  int separacao = (telaH <= 64) ? 22 : 26;
+  int yArc = centroY + (telaH <= 64 ? 2 : 4);
+
+  // Dois semicírculos sorridentes estilizados (^)
+  u8g2.drawDisc(centroX - separacao, yArc, raio, U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT);
+  u8g2.drawDisc(centroX + separacao, yArc, raio, U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT);
 }
 
 void desenharFaceOuvindo() {
-  // Olhos arregalados e reator Arc sutil pulsante
-  desenharOlhos(34, 10, 0, 0);
-  u8g2.drawCircle(64, 110, 6);
-  u8g2.drawDisc(64, 110, 2);
+  int altOlho = (telaH <= 64) ? 24 : 34;
+  int raio = (telaH <= 64) ? 6 : 10;
+  desenharOlhos(altOlho, raio, 0, (telaH <= 64 ? -4 : -6));
+
+  // Mini Reator Arc pulsante centralizado na parte inferior da tela
+  int yArc = (telaH <= 64) ? 54 : 110;
+  int raioArc = (telaH <= 64) ? 4 : 6;
+  u8g2.drawCircle(centroX, yArc, raioArc);
+  u8g2.drawDisc(centroX, yArc, max(1, raioArc - 3));
 }
 
 void desenharFaceSono() {
-  // Olhos fechados (duas linhas horizontais espessas)
-  u8g2.drawBox(26, 64, 32, 4);
-  u8g2.drawBox(70, 64, 32, 4);
+  int largOlho = (telaH <= 64) ? 26 : 32;
+  int separacao = (telaH <= 64) ? 22 : 26;
+  int espessura = (telaH <= 64) ? 3 : 4;
+  int yLinha = centroY;
+
+  // Dois traços horizontais fechados
+  u8g2.drawBox(centroX - separacao - (largOlho / 2), yLinha, largOlho, espessura);
+  u8g2.drawBox(centroX + separacao - (largOlho / 2), yLinha, largOlho, espessura);
 }
 
 void atualizarDisplay() {
@@ -108,10 +170,10 @@ void atualizarDisplay() {
   do {
     switch (expressaoAtual) {
       case FACE_NEUTRO:
-        desenharOlhos(28, 8, 0, 0);
+        desenharOlhos((telaH <= 64 ? 18 : 28), (telaH <= 64 ? 4 : 8), 0, 0);
         break;
       case FACE_PISCANDO:
-        desenharOlhos(4, 2, 0, 0);
+        desenharOlhos((telaH <= 64 ? 3 : 4), 1, 0, 0);
         break;
       case FACE_OUVINDO:
         desenharFaceOuvindo();
@@ -120,7 +182,7 @@ void atualizarDisplay() {
         desenharFaceFeliz();
         break;
       case FACE_FOCADO:
-        desenharOlhos(20, 4, 4, -4);
+        desenharOlhos((telaH <= 64 ? 14 : 20), (telaH <= 64 ? 3 : 4), 3, -2);
         break;
       case FACE_SONO:
         desenharFaceSono();
@@ -130,8 +192,22 @@ void atualizarDisplay() {
 }
 
 // ==============================================================================
-// MOVIMENTAÇÃO SUAVE DOS SERVOS
+// 4. CONTROLE SUAVE DOS SERVOMOTORES
 // ==============================================================================
+
+void garantirServosAtivos() {
+  if (!servoBase.attached())     servoBase.attach(PIN_BASE);
+  if (!servoOmbro.attached())    servoOmbro.attach(PIN_OMBRO);
+  if (!servoCotovelo.attached()) servoCotovelo.attach(PIN_COTOVELO);
+  if (!servoGarra.attached())    servoGarra.attach(PIN_GARRA);
+}
+
+void desenergizarServos() {
+  servoBase.detach();
+  servoOmbro.detach();
+  servoCotovelo.detach();
+  servoGarra.detach();
+}
 
 void moverSuave(Servo &servo, int &posAtual, int posAlvo, int delayMs = 12) {
   if (posAtual < posAlvo) {
@@ -146,20 +222,6 @@ void moverSuave(Servo &servo, int &posAtual, int posAlvo, int delayMs = 12) {
     }
   }
   posAtual = posAlvo;
-}
-
-void garantirServosAtivos() {
-  if (!servoBase.attached()) servoBase.attach(PIN_BASE);
-  if (!servoOmbro.attached()) servoOmbro.attach(PIN_OMBRO);
-  if (!servoCotovelo.attached()) servoCotovelo.attach(PIN_COTOVELO);
-  if (!servoGarra.attached()) servoGarra.attach(PIN_GARRA);
-}
-
-void desenergizarServos() {
-  servoBase.detach();
-  servoOmbro.detach();
-  servoCotovelo.detach();
-  servoGarra.detach();
 }
 
 void posturaProntidao() {
@@ -181,7 +243,7 @@ void posturaDescanso() {
   moverSuave(servoOmbro, posOmbro, 45);
   moverSuave(servoBase, posBase, 90);
   delay(200);
-  desenergizarServos(); // Corta o PWM para eliminar ruído (jitter) e resfriar os motores
+  desenergizarServos(); // Elimina jitter e resfria os SG90
 }
 
 void rotinaAcenar() {
@@ -209,25 +271,33 @@ void rotinaApontar() {
   posturaProntidao();
 }
 
+// ==============================================================================
+// 5. SETUP E LOOP
+// ==============================================================================
+
 void setup() {
+  // Inicialização serial em 115200 baud
   Serial.begin(115200);
-  
+
+  // Inicializa display U8g2 e detecta dimensão real
   u8g2.begin();
-  
-  servoBase.attach(PIN_BASE);
-  servoOmbro.attach(PIN_OMBRO);
-  servoCotovelo.attach(PIN_COTOVELO);
-  servoGarra.attach(PIN_GARRA);
-  
+  telaW = u8g2.getDisplayWidth();
+  telaH = u8g2.getDisplayHeight();
+  centroX = telaW / 2;
+  centroY = telaH / 2;
+
+  // Ativa servos nos novos pinos D0, D1, D4, D5
+  garantirServosAtivos();
   posturaProntidao();
+
   Serial.println("JARVIS_ONLINE_READY");
 }
 
 void loop() {
-  // Piscar de olhos autônomo e natural a cada 3 a 5 segundos
+  // Animação autônoma de piscar os olhos a cada 3.5 a 5 segundos
   unsigned long agora = millis();
   if (expressaoAtual == FACE_NEUTRO) {
-    if (!emPiscar && agora - ultimoPiscar > 3500) {
+    if (!emPiscar && agora - ultimoPiscar > 3800) {
       emPiscar = true;
       tempoInicioPiscar = agora;
       expressaoAtual = FACE_PISCANDO;
@@ -240,11 +310,11 @@ void loop() {
     }
   }
 
-  // Escuta comandos do Python via Serial
+  // Leitura de comandos vindos do Python (J.A.R.V.I.S. Brain)
   if (Serial.available() > 0) {
     String comando = Serial.readStringUntil('\n');
     comando.trim();
-    
+
     if (comando == "CMD:WAVE") {
       rotinaAcenar();
       Serial.println("ACK:WAVE_DONE");

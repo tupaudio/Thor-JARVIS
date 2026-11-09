@@ -73,25 +73,72 @@ class OctoPrintService:
         except Exception as e:
             return f"Não consegui consultar o OctoPrint (impressora desligada ou offline?): {e}"
 
-    def pausar_impressao(self) -> tuple[bool, str]:
-        """Alterna pausa/retomada do trabalho de impressão atual."""
-        if not self.is_configured():
-            return False, "OctoPrint não configurado no .env."
-        try:
-            self._post("/api/job", {"command": "pause", "action": "toggle"})
-            return True, "Comando de alternar pausa/retomada enviado à impressora."
-        except Exception as e:
-            return False, f"Falha ao pausar/retomar impressão: {e}"
+    def estado_job(self) -> dict:
+        """{'estado','arquivo','pct'} direto do OctoPrint. Levanta exceção se inacessível."""
+        job = self._get("/api/job")
+        arq = (job.get("job") or {}).get("file") or {}
+        return {
+            "estado": job.get("state", ""),
+            "arquivo": arq.get("display") or arq.get("name") or "",
+            "pct": (job.get("progress") or {}).get("completion"),
+        }
 
-    def cancelar_impressao(self) -> tuple[bool, str]:
-        """Cancela o trabalho de impressão ativo."""
+    def _comando_job(self, payload: dict, ok_msg: str) -> tuple:
+        try:
+            self._post("/api/job", payload)
+            return True, ok_msg
+        except Exception as e:
+            return False, f"Falha ao enviar o comando ao OctoPrint: {e}"
+
+    def pausar_impressao(self) -> tuple:
+        """Pausa EXPLÍCITA (idempotente): só age se a impressora estiver em 'Printing'."""
         if not self.is_configured():
             return False, "OctoPrint não configurado no .env."
         try:
-            self._post("/api/job", {"command": "cancel"})
-            return True, "Comando de cancelamento executado com sucesso na Ender 3."
+            info = self.estado_job()
         except Exception as e:
-            return False, f"Falha ao cancelar impressão: {e}"
+            return False, f"Não consegui consultar o OctoPrint: {e}"
+        if info["estado"] != "Printing":
+            return False, f"Nada a pausar: a impressora está em '{info['estado'] or 'estado desconhecido'}'."
+        return self._comando_job({"command": "pause", "action": "pause"}, "Impressão pausada.")
+
+    def retomar_impressao(self) -> tuple:
+        """Retomada EXPLÍCITA (idempotente): só age se estiver em 'Paused'."""
+        if not self.is_configured():
+            return False, "OctoPrint não configurado no .env."
+        try:
+            info = self.estado_job()
+        except Exception as e:
+            return False, f"Não consegui consultar o OctoPrint: {e}"
+        if info["estado"] != "Paused":
+            return False, f"Nada a retomar: a impressora está em '{info['estado'] or 'estado desconhecido'}'."
+        return self._comando_job({"command": "pause", "action": "resume"}, "Impressão retomada.")
+
+    def alternar_pausa(self) -> tuple:
+        """Lê o estado e age: Printing -> pausa; Paused -> retoma; senão não faz nada."""
+        if not self.is_configured():
+            return False, "OctoPrint não configurado no .env."
+        try:
+            estado = self.estado_job()["estado"]
+        except Exception as e:
+            return False, f"Não consegui consultar o OctoPrint: {e}"
+        if estado == "Printing":
+            return self.pausar_impressao()
+        if estado == "Paused":
+            return self.retomar_impressao()
+        return False, f"Não há impressão ativa para pausar ou retomar (estado: '{estado or 'desconhecido'}')."
+
+    def cancelar_impressao(self) -> tuple:
+        """Cancela o trabalho ativo (só se houver um)."""
+        if not self.is_configured():
+            return False, "OctoPrint não configurado no .env."
+        try:
+            estado = self.estado_job()["estado"]
+        except Exception as e:
+            return False, f"Não consegui consultar o OctoPrint: {e}"
+        if estado not in ("Printing", "Paused", "Pausing", "Resuming"):
+            return False, f"Nenhuma impressão ativa para cancelar (estado: '{estado or 'desconhecido'}')."
+        return self._comando_job({"command": "cancel"}, "Cancelamento enviado à Ender 3.")
 
     def ligar_tomada(self) -> bool:
         """Liga a tomada via plugin PSU Control."""
@@ -302,24 +349,28 @@ class OctoPrintService:
                                 analise = self.verificar_falha_impressao(foto_check)
                                 if analise.get("falha_detectada") and float(analise.get("confianca", 0.0)) >= 0.85:
                                     alerta_falha_emitido = True
-                                    self.pausar_impressao()
+                                    ok_pausa, msg_pausa = self.pausar_impressao()
                                     tipo = str(analise.get("tipo_falha", "espaguete")).replace("_", " ").upper()
                                     conf = int(float(analise.get("confianca", 0.0)) * 100)
                                     detalhes = analise.get("motivo", "Anomalia visual detectada na mesa de impressão.")
+                                    linha_pausa = (
+                                        "⏸️ A impressão foi *PAUSADA AUTOMATICAMENTE* para proteger sua Ender 3 e evitar desperdício."
+                                        if ok_pausa else
+                                        f"⚠️ *Não consegui pausar automaticamente:* {msg_pausa} Intervenha manualmente."
+                                    )
                                     msg_alerta = (
                                         f"🚨 *ALERTA CRÍTICO: FALHA NA IMPRESSORA 3D!*\n\n"
                                         f"⚠️ *Tipo Detectado:* {tipo}\n"
                                         f"🔍 *Confiança Visual:* {conf}%\n"
                                         f"📝 *Diagnóstico:* {detalhes}\n\n"
-                                        f"⏸️ A impressão foi *PAUSADA AUTOMATICAMENTE* para proteger sua Ender 3 e evitar desperdício.\n"
+                                        f"{linha_pausa}\n"
                                         f"Deseja cancelar o trabalho ou retomar?"
                                     )
-                                    botoes = [
-                                        [
-                                            {"text": "🛑 Cancelar Impressão", "callback_data": "cancel_print_confirm"},
-                                            {"text": "▶️ Retomar (Falso Alarme)", "callback_data": "resume_print_confirm"}
-                                        ]
-                                    ]
+                                    from dispatcher import criar_nonce
+                                    nonce = criar_nonce("print_job", {"arquivo": nome_arquivo}, ttl=3600)
+                                    botoes = [[{"text": "🛑 Cancelar Impressão", "callback_data": f"pj:{nonce}:c"}]]
+                                    if ok_pausa:
+                                        botoes[0].append({"text": "▶️ Retomar (Falso Alarme)", "callback_data": f"pj:{nonce}:r"})
                                     from telegram_service import telegram_service
                                     telegram_service.enviar_foto(foto_check, legenda=msg_alerta, botoes=botoes)
                             except Exception as e_vis:

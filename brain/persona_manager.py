@@ -128,7 +128,7 @@ PERSONAS = {
         "pitch": "+0Hz",
         "cor_hud": 0x051D,       # Azul Royal Astrometech
         "icone": "🛸",
-        "saudacao": "Beep boop whistle tweet! [Tradução do protocolo: Astrometech R2-D2 conectado e pronto para consertar o hiperpropulsor, capitão!]",
+        "saudacao": "*whistle beep boop tweet!* [Tradução do protocolo: Astrometech R2-D2 online! Sistemas de bordo e hiperpropulsor operacionais, capitão!]",
         "prompt": (
             "Você é o droide astrometech R2-D2 de Star Wars. "
             "Como droides R2 só se comunicam por bipes, apitos e trinados eletrônicos, você SEMPRE inicia suas respostas "
@@ -194,37 +194,100 @@ class PersonaManager:
 
         return p["saudacao"]
 
-    def gerar_audio_r2d2(self) -> bytes:
+    def gerar_audio_r2d2(self, texto: str = "") -> bytes:
         """
-        Sintetiza uma sequência procedural autêntica de bipes e apitos modulados em frequência do R2-D2.
+        Sintetiza uma sequência procedural autêntica de bipes, apitos e trinados FM do R2-D2.
+        Gera modulação de frequência (FM) estilo sintetizador analógico ARP 2600.
         """
-        sr = 22050
-        def gerar_chirp(f_start, f_end, dur=0.08):
-            t = np.linspace(0, dur, int(sr * dur), endpoint=False)
-            freqs = np.linspace(f_start, f_end, len(t))
-            phase = 2 * np.pi * np.cumsum(freqs) / sr
-            audio = 0.5 * np.sin(phase)
-            ramp = int(len(t) * 0.1)
-            audio[:ramp] *= np.linspace(0, 1, ramp)
-            audio[-ramp:] *= np.linspace(1, 0, ramp)
-            return (audio * 32767).astype(np.int16)
-
-        padroes = [
-            gerar_chirp(900, 2400, 0.08),
-            gerar_chirp(2400, 1100, 0.06),
-            gerar_chirp(1200, 3100, 0.12),
-            gerar_chirp(3100, 3100, 0.05),
-            gerar_chirp(1000, 3500, 0.14)
-        ]
-        pcm = np.concatenate(padroes)
-        
         import wave
+        import random
+        sr = 22050
+
+        def tom_puro(freq, dur):
+            t = np.linspace(0, dur, int(sr * dur), endpoint=False)
+            wave_data = 0.42 * np.sin(2 * np.pi * freq * t)
+            fade = min(int(sr * 0.008), len(t) // 4)
+            if fade > 0:
+                wave_data[:fade] *= np.linspace(0, 1, fade)
+                wave_data[-fade:] *= np.linspace(1, 0, fade)
+            return wave_data
+
+        def chirp_fm(f_ini, f_fim, dur, lfo_f=0, lfo_d=0):
+            t = np.linspace(0, dur, int(sr * dur), endpoint=False)
+            freqs = np.linspace(f_ini, f_fim, len(t))
+            if lfo_f > 0:
+                freqs = np.clip(freqs + lfo_d * np.sin(2 * np.pi * lfo_f * t), 300, 6500)
+            phase = 2 * np.pi * np.cumsum(freqs) / sr
+            wave_data = 0.45 * np.sin(phase)
+            fade = min(int(sr * 0.01), len(t) // 4)
+            if fade > 0:
+                wave_data[:fade] *= np.linspace(0, 1, fade)
+                wave_data[-fade:] *= np.linspace(1, 0, fade)
+            return wave_data
+
+        def trinado_arpeggio(f1, f2, dur, taxa_hz=26):
+            t = np.linspace(0, dur, int(sr * dur), endpoint=False)
+            sq = np.sign(np.sin(2 * np.pi * taxa_hz * t))
+            freqs = np.where(sq > 0, f1, f2)
+            phase = 2 * np.pi * np.cumsum(freqs) / sr
+            wave_data = 0.4 * np.sin(phase)
+            fade = min(int(sr * 0.008), len(t) // 4)
+            if fade > 0:
+                wave_data[:fade] *= np.linspace(0, 1, fade)
+                wave_data[-fade:] *= np.linspace(1, 0, fade)
+            return wave_data
+
+        eh_pergunta = "?" in texto
+        eh_animado = "!" in texto or any(w in texto.lower() for w in ["online", "pronto", "conectado", "olá", "ola"])
+
+        # Duração total entre 1.4s e 2.2s
+        dur_alvo = random.uniform(1.4, 2.0)
+        chunks = []
+        tempo = 0.0
+
+        while tempo < dur_alvo:
+            elemento = random.choice(["chirp_up", "chirp_down", "whistle_fm", "trinado", "beep"])
+            d = random.uniform(0.06, 0.16)
+
+            if elemento == "chirp_up":
+                c = chirp_fm(random.uniform(900, 1700), random.uniform(2200, 4200), d)
+            elif elemento == "chirp_down":
+                c = chirp_fm(random.uniform(2600, 3900), random.uniform(900, 1500), d)
+            elif elemento == "whistle_fm":
+                d_w = d * 1.5
+                c = chirp_fm(random.uniform(1800, 3100), random.uniform(1600, 3300), d_w,
+                             lfo_f=random.uniform(16, 32), lfo_d=random.uniform(300, 750))
+                d = d_w
+            elif elemento == "trinado":
+                f_base = random.uniform(1400, 2400)
+                d_t = d * 1.3
+                c = trinado_arpeggio(f_base, f_base * random.uniform(1.2, 1.45), d_t)
+                d = d_t
+            else:
+                c = tom_puro(random.choice([1200, 1500, 1900, 2300, 2900, 3400]), d * 0.8)
+                d *= 0.8
+
+            chunks.append(c)
+            tempo += d
+            pausa = np.zeros(int(sr * random.uniform(0.025, 0.065)))
+            chunks.append(pausa)
+            tempo += len(pausa) / sr
+
+        # Assinatura clássica final
+        if eh_pergunta:
+            chunks.append(chirp_fm(1400, 3800, 0.22, lfo_f=20, lfo_d=400))
+        elif eh_animado:
+            chunks.append(chirp_fm(2800, 3600, 0.14, lfo_f=28, lfo_d=500))
+
+        pcm = np.concatenate(chunks)
+        pcm_16 = (pcm * 32767).astype(np.int16)
+
         bio = io.BytesIO()
-        with wave.open(bio, 'wb') as wav:
-            wav.setnchannels(1)
-            wav.setsampwidth(2)
-            wav.setframerate(sr)
-            wav.writeframes(pcm.tobytes())
+        with wave.open(bio, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sr)
+            wf.writeframes(pcm_16.tobytes())
         return bio.getvalue()
 
 persona_manager = PersonaManager()

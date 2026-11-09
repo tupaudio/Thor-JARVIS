@@ -94,6 +94,8 @@ def processar_comando(texto: str, origem: str = "cli", timeout: float = 75.0) ->
         return ""
 
     print(f"\n⚡ [COMANDO ({origem.upper()})]: \"{texto}\"")
+    from dispatcher import contexto_origem
+    contexto_origem.set(origem)   # laço OpenAI/Claude roda nesta thread; o Gemini define no worker
 
     def _responder(r: str) -> str:
         print(f"🎙️ [J.A.R.V.I.S.]: \"{r}\"\n")
@@ -128,7 +130,7 @@ def processar_comando(texto: str, origem: str = "cli", timeout: float = 75.0) ->
 
         # PLANEJADOR HIERÁRQUICO MULTI-ETAPAS (Pendência 2 / OpenJarvis Planner Loop)
         from planner_service import planner_service
-        if planner_service.eh_instrucao_composta(texto):
+        if provedor not in ("openai", "claude") and planner_service.eh_instrucao_composta(texto):
             tr["rota"] = "planner_multi_etapas"
             resp_plano = planner_service.decompor_e_executar(texto)
             if resp_plano:
