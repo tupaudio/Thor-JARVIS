@@ -130,9 +130,10 @@ class TelegramBotService:
             print(f"⚠️ [TELEGRAM] Erro ao enviar áudio de voz: {self._limpar_erro(e)}")
             return False
 
-    def enviar_foto(self, foto, chat_id: str = None, legenda: str = "") -> bool:
+    def enviar_foto(self, foto, chat_id: str = None, legenda: str = "", botoes: list = None) -> bool:
         """
         Envia uma foto (caminho em disco ou bytes JPEG) para o Telegram do usuário.
+        Opcionalmente inclui botões interativos inline logo abaixo da foto.
         """
         if not self.is_configured():
             return False
@@ -155,6 +156,8 @@ class TelegramBotService:
             if legenda:
                 data["caption"] = legenda
                 data["parse_mode"] = "Markdown"
+            if botoes:
+                data["reply_markup"] = json.dumps({"inline_keyboard": botoes})
             resp = self.session.post(url, data=data, files=files, timeout=30)
             return resp.json().get("ok", False)
         except Exception as e:
@@ -253,6 +256,11 @@ class TelegramBotService:
                 from octoprint_service import octoprint_service
                 ok, msg = octoprint_service.cancelar_impressao()
                 self.enviar_mensagem(f"🛑 *Comando de Cancelamento:* {msg}", chat_id=user_id)
+            elif data == "resume_print_confirm":
+                self.responder_callback(cb_id, "Retomando impressão...")
+                from octoprint_service import octoprint_service
+                ok, msg = octoprint_service.pausar_impressao()
+                self.enviar_mensagem(f"▶️ *Impressão Retomada:* {msg}", chat_id=user_id)
             elif data == "cancel_print_abort":
                 self.responder_callback(cb_id, "Cancelamento abortado.")
                 self.enviar_mensagem("✅ Cancelamento abortado. A impressão continua ativa.", chat_id=user_id)

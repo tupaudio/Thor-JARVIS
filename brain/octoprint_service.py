@@ -147,6 +147,51 @@ class OctoPrintService:
             pass
         return None
 
+    def verificar_falha_impressao(self, foto_bytes: bytes = None) -> dict:
+        """
+        Inspeciona a imagem da mesa da impressora 3D usando Gemini Vision (LP1).
+        Detecta anomalias: 'espaguete' (filamento solto), 'descolamento_mesa' ou 'deslocamento_severo'.
+        Retorna dicionário com {'falha_detectada': bool, 'confianca': float, 'tipo_falha': str, 'motivo': str}.
+        """
+        if foto_bytes is None:
+            foto_bytes = self._obter_foto_camera()
+        if not foto_bytes:
+            return {"falha_detectada": False, "confianca": 0.0, "tipo_falha": "camera_indisponivel", "motivo": "Nenhuma imagem da câmera disponível."}
+
+        try:
+            from gemini_session import gemini_session
+            from PIL import Image
+            import io
+            import re
+            import json
+
+            img = Image.open(io.BytesIO(foto_bytes))
+            prompt = (
+                "Você é o módulo de inspeção de qualidade visual da impressora 3D Creality Ender 3 S1 Pro do JARVIS.\n"
+                "Analise a imagem da mesa de impressão e determine se o trabalho está ocorrendo normalmente ou se ocorreu uma falha catastrófica.\n"
+                "Falhas catastróficas incluem:\n"
+                "- 'espaguete': filamento extrudado solto formando ninho/emaranhado caótico de fios no ar ou na mesa.\n"
+                "- 'descolamento_mesa': a peça descolou da base aquecida e está solta ou sendo arrastada pelo bico.\n"
+                "- 'deslocamento_severo': salto significativo de camadas que inviabiliza a peça.\n\n"
+                "Se a mesa estiver vazia ou o bico estiver apenas iniciando/aquecendo, considere normal (sem falha).\n"
+                "Responda ESTRITAMENTE em formato JSON puro, sem blocos markdown nem texto extra:\n"
+                "{\n"
+                '  "falha_detectada": false,\n'
+                '  "confianca": 0.0,\n'
+                '  "tipo_falha": "nenhuma",\n'
+                '  "motivo": "Impressão evoluindo adequadamente."\n'
+                "}"
+            )
+            resposta_txt = gemini_session.gerar_com_imagem(prompt, img)
+            if not resposta_txt:
+                return {"falha_detectada": False, "confianca": 0.0, "tipo_falha": "sem_resposta", "motivo": "Sem retorno do modelo de visão."}
+
+            limpo = re.sub(r"^```(?:json)?\s*", "", resposta_txt.strip())
+            limpo = re.sub(r"\s*```$", "", limpo)
+            return json.loads(limpo)
+        except Exception as e:
+            return {"falha_detectada": False, "confianca": 0.0, "tipo_falha": "erro", "motivo": str(e)}
+
     def _notificar_telegram(self, texto: str, com_foto: bool = True):
         from telegram_service import telegram_service
         foto = self._obter_foto_camera() if com_foto else None
@@ -162,6 +207,8 @@ class OctoPrintService:
         ultimo_arquivo = ""
         marcos_notificados = set()
         falhas_http = 0
+        ultimo_check_visao = 0.0
+        alerta_falha_emitido = False
 
         while True:
             try:
@@ -189,10 +236,12 @@ class OctoPrintService:
                 if nome_arquivo != ultimo_arquivo:
                     ultimo_arquivo = nome_arquivo
                     marcos_notificados.clear()
+                    alerta_falha_emitido = False
 
                 # 1. Início de Impressão (ou retomada de monitoramento com job já rodando)
                 if imprimindo_agora and not imprimindo_anterior:
                     imprimindo_anterior = True
+                    alerta_falha_emitido = False
                     tempo_est = f"~{int(restante // 60)} min" if restante else "calculando..."
                     
                     if pct is not None and pct >= 5.0:
@@ -241,9 +290,45 @@ class OctoPrintService:
                             )
                             self._notificar_telegram(msg, com_foto=True)
 
+                # 2.5 Verificação Visual Periódica de Falhas / Espaguete (LP1 - Gemini Vision)
+                if imprimindo_agora and estado == "Printing" and pct is not None and 3.0 <= pct <= 98.0:
+                    agora_ts = time.time()
+                    intervalo_visao = float(os.getenv("OCTOPRINT_VISION_CHECK_SEC", "300"))
+                    if (agora_ts - ultimo_check_visao >= intervalo_visao) and not alerta_falha_emitido:
+                        ultimo_check_visao = agora_ts
+                        foto_check = self._obter_foto_camera()
+                        if foto_check:
+                            try:
+                                analise = self.verificar_falha_impressao(foto_check)
+                                if analise.get("falha_detectada") and float(analise.get("confianca", 0.0)) >= 0.85:
+                                    alerta_falha_emitido = True
+                                    self.pausar_impressao()
+                                    tipo = str(analise.get("tipo_falha", "espaguete")).replace("_", " ").upper()
+                                    conf = int(float(analise.get("confianca", 0.0)) * 100)
+                                    detalhes = analise.get("motivo", "Anomalia visual detectada na mesa de impressão.")
+                                    msg_alerta = (
+                                        f"🚨 *ALERTA CRÍTICO: FALHA NA IMPRESSORA 3D!*\n\n"
+                                        f"⚠️ *Tipo Detectado:* {tipo}\n"
+                                        f"🔍 *Confiança Visual:* {conf}%\n"
+                                        f"📝 *Diagnóstico:* {detalhes}\n\n"
+                                        f"⏸️ A impressão foi *PAUSADA AUTOMATICAMENTE* para proteger sua Ender 3 e evitar desperdício.\n"
+                                        f"Deseja cancelar o trabalho ou retomar?"
+                                    )
+                                    botoes = [
+                                        [
+                                            {"text": "🛑 Cancelar Impressão", "callback_data": "cancel_print_confirm"},
+                                            {"text": "▶️ Retomar (Falso Alarme)", "callback_data": "resume_print_confirm"}
+                                        ]
+                                    ]
+                                    from telegram_service import telegram_service
+                                    telegram_service.enviar_foto(foto_check, legenda=msg_alerta, botoes=botoes)
+                            except Exception as e_vis:
+                                print(f"⚠️ [OCTOPRINT] Erro na verificação visual de impressão: {e_vis}")
+
                 # 3. Término da Impressão (Distinção estrita entre Conclusão 100% vs Cancelamento/Interrupção)
                 elif imprimindo_anterior and not imprimindo_agora:
                     imprimindo_anterior = False
+                    alerta_falha_emitido = False
                     concluida_com_sucesso = (pct is not None and pct >= 99.8) or (estado == "Done")
 
                     if concluida_com_sucesso:

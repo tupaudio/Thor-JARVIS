@@ -328,6 +328,47 @@ def analisar_visao_da_camera(pergunta: str = "") -> str:
     hardware.atualizar_tela(titulo="VISÃO DOCK", subtitulo="Analisando ambiente...", icone="👁️")
     return system_service.analisar_ambiente_camera(pergunta=pergunta)
 
+def consultar_status_impressora_3d() -> str:
+    """
+    Retorna o status atual da impressora 3D Ender 3 S1 Pro (temperaturas de bico e mesa, progresso percentual e tempo restante).
+    """
+    from octoprint_service import octoprint_service
+    hardware.atualizar_tela(titulo="IMPRESSORA 3D", subtitulo="Consultando status...", icone="🖨️")
+    return octoprint_service.obter_status()
+
+def pausar_ou_retomar_impressao_3d() -> str:
+    """
+    Pausa ou retoma a impressão 3D ativa na Ender 3 S1 Pro.
+    """
+    from octoprint_service import octoprint_service
+    hardware.atualizar_tela(titulo="IMPRESSORA 3D", subtitulo="Alternando pausa...", icone="⏯️")
+    ok, msg = octoprint_service.pausar_impressao()
+    return msg
+
+def cancelar_impressao_3d() -> str:
+    """
+    Cancela o trabalho de impressão ativo na Ender 3 S1 Pro.
+    """
+    from octoprint_service import octoprint_service
+    hardware.atualizar_tela(titulo="IMPRESSORA 3D", subtitulo="Cancelando trabalho...", icone="🛑")
+    ok, msg = octoprint_service.cancelar_impressao()
+    return msg
+
+def verificar_qualidade_impressao_3d() -> str:
+    """
+    Captura imagem da mesa da impressora 3D e realiza inspeção visual com IA (Gemini Vision) para detectar espaguete, descolamento ou falhas.
+    """
+    from octoprint_service import octoprint_service
+    hardware.atualizar_tela(titulo="INSPEÇÃO 3D", subtitulo="Analisando camadas...", icone="🔍")
+    analise = octoprint_service.verificar_falha_impressao()
+    if analise.get("falha_detectada"):
+        tipo = analise.get("tipo_falha", "espaguete").upper()
+        conf = int(analise.get("confianca", 0.0) * 100)
+        det = analise.get("motivo", "")
+        return f"ALERTA: Detectei falha na impressão ({tipo}) com {conf}% de confiança. {det}"
+    else:
+        return f"Inspeção visual concluída: {analise.get('motivo', 'A peça aparenta estar imprimindo normalmente.')}"
+
 def controlar_dispositivos_casa_inteligente(dispositivo: str, acao: str, valor: str = "") -> str:
     """
     Controla lâmpadas inteligentes, fitas LED, tomadas ou aparelhos de casa inteligente (ligar, desligar, brilho ou cor).
@@ -490,6 +531,8 @@ METADADOS_FERRAMENTAS = {
     "organizar_arquivos_pasta": RiscoFerramenta.FISICO,
     "ativar_modo_sentinela": RiscoFerramenta.FISICO,
     "desativar_modo_sentinela": RiscoFerramenta.FISICO,
+    "pausar_ou_retomar_impressao_3d": RiscoFerramenta.FISICO,
+    "cancelar_impressao_3d": RiscoFerramenta.FISICO,
     # ESCRITA
     "gerenciar_agenda": RiscoFerramenta.ESCRITA,
     "gerenciar_tarefas_google": RiscoFerramenta.ESCRITA,
@@ -501,6 +544,8 @@ METADADOS_FERRAMENTAS = {
     "mudar_motor_ia": RiscoFerramenta.ESCRITA,
     "mudar_personalidade_ia": RiscoFerramenta.ESCRITA,
     # LEITURA
+    "consultar_status_impressora_3d": RiscoFerramenta.LEITURA,
+    "verificar_qualidade_impressao_3d": RiscoFerramenta.LEITURA,
     "ler_ultimos_emails": RiscoFerramenta.LEITURA,
     "consultar_clima_e_tempo": RiscoFerramenta.LEITURA,
     "consultar_rota_e_transito_waze": RiscoFerramenta.LEITURA,
@@ -563,6 +608,10 @@ JARVIS_TOOLS = [
     mudar_motor_ia,
     consultar_status_motores_ia,
     consultar_data_hora_atual,
+    consultar_status_impressora_3d,
+    pausar_ou_retomar_impressao_3d,
+    cancelar_impressao_3d,
+    verificar_qualidade_impressao_3d,
 ]
 
 JARVIS_SYSTEM_INSTRUCTION = """
@@ -583,6 +632,7 @@ ESTILO DE FALA (a resposta será lida em voz alta):
 - Confirme cada ação no estilo da personalidade ativa.
 
 FERRAMENTAS (use sempre que o pedido for uma ação ou consulta prática):
+- Impressora 3D (Ender 3 S1 Pro): 'consultar_status_impressora_3d' (progresso, temperaturas, tempo restante), 'verificar_qualidade_impressao_3d' (inspeção visual por IA contra espaguete/falhas), 'pausar_ou_retomar_impressao_3d', 'cancelar_impressao_3d'.
 - Servidor: 'consultar_status_servidor' (como está o servidor/sistema, CPU, memória, partição), 'consultar_armazenamento_servidor' (modelo do HD/SSD), 'consultar_hardware_servidor' (máquina, processador, especificações completas), 'consultar_status_ollama'.
 - Motores de IA: 'mudar_motor_ia' para trocar entre híbrido/local/nuvem ou Gemini/ChatGPT/Claude; 'consultar_status_motores_ia' para ver o que está ativo.
 - Braço e painel: 'mover_braco_mecanico' para acenar, apontar ou reagir; 'atualizar_painel_visual' após ações importantes.
