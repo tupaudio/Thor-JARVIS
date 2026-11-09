@@ -34,6 +34,9 @@
 #include <SPI.h>
 #include <Servo.h>
 
+#define U8G2_SEMICIRCLE_UPPER (U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT)
+#define U8G2_SEMICIRCLE_LOWER (U8G2_DRAW_LOWER_RIGHT | U8G2_DRAW_LOWER_LEFT)
+
 // ==============================================================================
 // 1. SELEÇÃO DO MODELO E RESOLUÇÃO DO DISPLAY OLED 1.5" 128x128 SPI (SH1107)
 // ==============================================================================
@@ -205,14 +208,14 @@ void desenharFaceRealista(Expressao exp) {
       u8g2.drawLine(90, 27, 104, 33);
       
       // Olhos em arco expressivo sorridente (^)
-      u8g2.drawCircle(38, 56, 14, U8G2_DRAW_UPPER);
-      u8g2.drawCircle(38, 55, 14, U8G2_DRAW_UPPER);
-      u8g2.drawCircle(90, 56, 14, U8G2_DRAW_UPPER);
-      u8g2.drawCircle(90, 55, 14, U8G2_DRAW_UPPER);
+      u8g2.drawCircle(38, 56, 14, U8G2_SEMICIRCLE_UPPER);
+      u8g2.drawCircle(38, 55, 14, U8G2_SEMICIRCLE_UPPER);
+      u8g2.drawCircle(90, 56, 14, U8G2_SEMICIRCLE_UPPER);
+      u8g2.drawCircle(90, 55, 14, U8G2_SEMICIRCLE_UPPER);
       
       // Sorriso suave
-      u8g2.drawCircle(64, 86, 18, U8G2_DRAW_LOWER);
-      u8g2.drawCircle(64, 85, 18, U8G2_DRAW_LOWER);
+      u8g2.drawCircle(64, 86, 18, U8G2_SEMICIRCLE_LOWER);
+      u8g2.drawCircle(64, 85, 18, U8G2_SEMICIRCLE_LOWER);
       u8g2.drawLine(44, 94, 47, 92);
       u8g2.drawLine(84, 94, 81, 92);
       break;
@@ -244,8 +247,8 @@ void desenharFaceRealista(Expressao exp) {
       u8g2.drawLine(78, 37, 102, 37);
       
       // Olhos cerrados em descanso
-      u8g2.drawCircle(38, 56, 14, U8G2_DRAW_LOWER);
-      u8g2.drawCircle(90, 56, 14, U8G2_DRAW_LOWER);
+      u8g2.drawCircle(38, 56, 14, U8G2_SEMICIRCLE_LOWER);
+      u8g2.drawCircle(90, 56, 14, U8G2_SEMICIRCLE_LOWER);
       
       // Boca serena e efeito 'Z z z'
       u8g2.drawBox(54, 96, 20, 2);
