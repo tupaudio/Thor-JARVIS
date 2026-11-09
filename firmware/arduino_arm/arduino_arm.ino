@@ -42,21 +42,13 @@
 // nos módulos OLED 1.5" chineses GME128128 e genéricos de 7 pinos.
 
 // ==============================================================================
-// 1. PINOS E DRIVER DO DISPLAY OLED 1.5" 128x128 SPI
+// 1. PINOS E DRIVER DO DISPLAY OLED 1.5" 128x128 SPI (SH1107)
 // ==============================================================================
-// Fiação Original da Sensor Shield V5.0:
-// CLK=13, DIN=11, CS=10, DC=8, RST=7
-// (Se sua fiação usar DC=9 e RST=8, descomente PINOS_OLED_9_8 abaixo)
-
-// #define PINOS_OLED_9_8
-
-#ifndef PINOS_OLED_9_8
-  // Padrão original funcional: CS=10, DC=8, RST=7
-  U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 8, /* reset=*/ 7);
-#else
-  // Alternativa: CS=10, DC=9, RST=8
-  U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-#endif
+// Fiação Real Confirmada pelo Usuário:
+// SCL/CLK -> D13 | SDA/DIN -> D11 | CS -> D10 | DC -> D9 | RST -> D8 | VCC/GND -> D13
+//
+// Driver oficial SH1107 128x128 SPI:
+U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 
 // ==============================================================================
 // 2. PINOS DOS SERVOS
