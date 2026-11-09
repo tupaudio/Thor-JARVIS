@@ -43,33 +43,33 @@
 #include <Servo.h>
 
 // ==============================================================================
-// 1. SELEÇÃO DO MODELO E RESOLUÇÃO DO DISPLAY OLED
+// 1. SELEÇÃO DO MODELO E RESOLUÇÃO DO DISPLAY OLED 1.5" 128x128 SPI
 // ==============================================================================
-// Descomente apenas UMA das opções abaixo correspondente ao seu display físico:
+// O display oficial é 1.5" 128x128 SPI (Driver SH1107 / SSD1327).
+// A opção A (SH1107 padrão 128x128) está ATIVADA por padrão.
 
-// OPÇÃO A: OLED 128x64 SSD1306 SPI 0.96" (Mais comum em kits de robótica)
-#define OLED_128X64_SSD1306_SPI
+// OPÇÃO A: OLED 1.5" 128x128 SH1107 SPI (GME128128-01 / Genérico 7 pinos) - PADRÃO OFICIAL
+#define OLED_128X128_SH1107_SPI
 
-// OPÇÃO B: OLED 128x64 SH1106 SPI 1.3"
-// #define OLED_128X64_SH1106_SPI
+// OPÇÃO B: OLED 1.5" 128x128 SH1107 SEEED SPI (Use se a imagem aparecer com colunas deslocadas ou faixas)
+// #define OLED_128X128_SH1107_SEEED_SPI
 
-// OPÇÃO C: OLED 128x128 SH1107 SPI 1.5" (GME128128)
-// #define OLED_128X128_SH1107_SPI
+// OPÇÃO C: OLED 1.5" 128x128 SSD1327 SPI (Módulos tipo Waveshare 1.5" 16 níveis de cinza)
+// #define OLED_128X128_SSD1327_SPI
 
-// OPÇÃO D: OLED 128x64 SSD1306 I2C (Pinos A4=SDA, A5=SCL)
-// #define OLED_128X64_SSD1306_I2C
+// OPÇÃO D: OLED 128x64 SSD1306 SPI 0.96" (Caso use módulo compacto alternativo)
+// #define OLED_128X64_SSD1306_SPI
 
-#if defined(OLED_128X64_SSD1306_SPI)
-  U8G2_SSD1306_128X64_NONAME_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-#elif defined(OLED_128X64_SH1106_SPI)
-  U8G2_SH1106_128X64_NONAME_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-#elif defined(OLED_128X128_SH1107_SPI)
+#if defined(OLED_128X128_SH1107_SPI)
   U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-#elif defined(OLED_128X64_SSD1306_I2C)
-  U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
-#else
-  // Fallback padrão adaptativo
+#elif defined(OLED_128X128_SH1107_SEEED_SPI)
+  U8G2_SH1107_SEEED_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#elif defined(OLED_128X128_SSD1327_SPI)
+  U8G2_SSD1327_WS_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#elif defined(OLED_128X64_SSD1306_SPI)
   U8G2_SSD1306_128X64_NONAME_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#else
+  U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 #endif
 
 // ==============================================================================
