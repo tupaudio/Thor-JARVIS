@@ -1,33 +1,46 @@
 /*
- * Teste isolado do OLED 1.5" 128x128 SPI (SH1107). Sem servos e sem serial.
- * Pinos: CLK(D0 da tela)=13, DIN(D1 da tela)=11, CS=10, DC=9, RST=8.
- * Troque o driver abaixo (descomente UM) se a tela continuar apagada ou torta.
- * Grave com: arduino-cli compile/upload --fqbn arduino:avr:uno firmware/oled_teste
+ * Teste isolado do OLED 1.5" 128x128 SPI (SH1107).
+ * Testa a fiação física original do projeto: CS=10, DC=8, RST=7 (CLK=13, DIN=11)
  */
+#include <Arduino.h>
 #include <U8g2lib.h>
 #include <SPI.h>
 
-U8G2_SH1107_128X128_1_4W_SW_SPI u8g2(U8G2_R0, 13, 11, 10, 9, 8);          // 1) SH1107 original, SPI por software
-//U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, 10, 9, 8);                 // 2) SH1107 original, SPI por hardware
-//U8G2_SH1107_PIMORONI_128X128_1_4W_SW_SPI u8g2(U8G2_R0, 13, 11, 10, 9, 8); // 3) Pimoroni
-//U8G2_SH1107_SEEED_128X128_1_4W_SW_SPI u8g2(U8G2_R0, 13, 11, 10, 9, 8);   // 4) Seeed
-//U8G2_SSD1327_WS_128X128_1_4W_SW_SPI u8g2(U8G2_R0, 13, 11, 10, 9, 8);     // 5) SSD1327
+// PINOS ORIGINAIS DO PROJETO: CS=10, DC=8, RST=7 (Pinos de hardware SPI: CLK=13, DIN=11)
+// Se os seus fios estiverem em DC=8 e RST=7, esta linha acende a tela na hora!
+U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 8, /* reset=*/ 7);
+
+// Caso a fiação seja DC=9 e RST=8, descomente a linha abaixo:
+// U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 
 void setup() {
+  Serial.begin(115200);
+  Serial.println("INICIANDO_TESTE_OLED_SH1107");
+
   u8g2.begin();
   u8g2.setPowerSave(0);
+  u8g2.setContrast(255);
 }
 
 void loop() {
   u8g2.firstPage();
   do {
+    // Moldura externa 128x128
     u8g2.drawFrame(0, 0, 128, 128);
+    
+    // Linhas diagonais cruzadas em X
     u8g2.drawLine(0, 0, 127, 127);
     u8g2.drawLine(127, 0, 0, 127);
+    
+    // Texto de confirmação
     u8g2.setFont(u8g2_font_6x10_tf);
-    u8g2.drawStr(34, 20, "TESTE OLED");
-    u8g2.drawRBox(30, 50, 26, 28, 6);
-    u8g2.drawRBox(72, 50, 26, 28, 6);
+    u8g2.drawStr(32, 25, "JARVIS OLED");
+    
+    // Dois olhos robóticos centralizados
+    u8g2.drawRBox(28, 50, 30, 26, 6);
+    u8g2.drawRBox(70, 50, 30, 26, 6);
   } while (u8g2.nextPage());
-  delay(500);
+
+  Serial.println("OLED_FRAME_DESENHADO");
+  delay(1000);
 }

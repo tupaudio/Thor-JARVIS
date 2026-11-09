@@ -41,25 +41,20 @@
 // A variante SEEED é a que ativa a bomba de carga (Charge Pump) e contraste
 // nos módulos OLED 1.5" chineses GME128128 e genéricos de 7 pinos.
 
-// OPÇÃO A (PADRÃO): driver SH1107 128x128 original. É o único que já mostrou os olhos nesta tela.
-#define OLED_128X128_SH1107_HW_SPI
+// ==============================================================================
+// 1. PINOS E DRIVER DO DISPLAY OLED 1.5" 128x128 SPI
+// ==============================================================================
+// Fiação Original da Sensor Shield V5.0:
+// CLK=13, DIN=11, CS=10, DC=8, RST=7
+// (Se sua fiação usar DC=9 e RST=8, descomente PINOS_OLED_9_8 abaixo)
 
-// OPÇÃO B: SH1107 SEEED (NÃO funcionou nesta tela: ficou apagada)
-// #define OLED_128X128_SH1107_SEEED_HW_SPI
+// #define PINOS_OLED_9_8
 
-// OPÇÃO C: SH1107 Pimoroni (use se o rosto aparecer deslocado/cortado com a opção A)
-// #define OLED_128X128_SH1107_PIMORONI_HW_SPI
-
-// OPÇÃO D: SH1107 original com SPI por software (mesmos pinos; use se a opção A falhar)
-// #define OLED_128X128_SH1107_SW_SPI
-
-#if defined(OLED_128X128_SH1107_SEEED_HW_SPI)
-  U8G2_SH1107_SEEED_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-#elif defined(OLED_128X128_SH1107_PIMORONI_HW_SPI)
-  U8G2_SH1107_PIMORONI_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-#elif defined(OLED_128X128_SH1107_SW_SPI)
-  U8G2_SH1107_128X128_1_4W_SW_SPI u8g2(U8G2_R0, /* clk=*/ 13, /* data=*/ 11, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
+#ifndef PINOS_OLED_9_8
+  // Padrão original funcional: CS=10, DC=8, RST=7
+  U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 8, /* reset=*/ 7);
 #else
+  // Alternativa: CS=10, DC=9, RST=8
   U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 #endif
 
