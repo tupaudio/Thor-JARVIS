@@ -79,12 +79,10 @@ Servo servoGarra;
 int posBase     = 90;
 int posOmbro    = 90;
 int posCotovelo = 90;
-// Garra: ajuste estes dois ângulos conforme a sua mecânica (0-180).
-// Como a garra ficava sempre aberta com 10-60°, o "fechar" fica num ângulo MAIOR.
-// Calibre sem regravar: CMD:GARRA:<graus> (ex.: CMD:GARRA:80). Não force o servo contra o batente.
+// Garra: calibrada para fechamento completo (135 graus) e abertura total (30 graus)
 int GARRA_ABERTA  = 30;
-int GARRA_FECHADA = 80;
-int posGarra    = 80;
+int GARRA_FECHADA = 135;
+int posGarra      = 135;
 
 // Estados das Expressões Faciais do J.A.R.V.I.S.
 enum Expressao {
@@ -101,68 +99,64 @@ unsigned long ultimoPiscar = 0;
 unsigned long tempoInicioPiscar = 0;
 bool emPiscar = false;
 
-// Variáveis de geometria de tela dinâmicas (calculadas no setup)
-int telaW = 128;
-int telaH = 64;
-int centroX = 64;
-int centroY = 32;
-
 // ==============================================================================
-// 3. FUNÇÕES GRÁFICAS AUTOCENTRALIZADAS E ADAPTATIVAS (128x64 ou 128x128)
+// 3. FUNÇÕES DE DESENHO DO ROSTO ROBÓTICO (128x128 SH1107 ORIGINAL)
 // ==============================================================================
 
 void desenharOlhos(int alturaOlho, int raioBorda, int deslocX = 0, int deslocY = 0) {
-  // Proporções dinâmicas conforme a altura da tela
-  int largOlho = (telaH <= 64) ? 26 : 32;
-  int separacao = (telaH <= 64) ? 22 : 26;
+  // Olho Esquerdo: centro em x=42, y=64
+  // Olho Direito:  centro em x=86, y=64
+  int largura = 32;
+  int yTop = 64 - (alturaOlho / 2) + deslocY;
   
-  int xEsq = centroX - separacao + deslocX;
-  int xDir = centroX + separacao + deslocX;
-  int yTop = centroY - (alturaOlho / 2) + deslocY;
-
-  // Garante que não ultrapasse as bordas da tela
-  if (yTop < 0) yTop = 0;
-  if (yTop + alturaOlho > telaH) alturaOlho = telaH - yTop;
-
-  u8g2.drawRBox(xEsq - (largOlho / 2), yTop, largOlho, alturaOlho, raioBorda);
-  u8g2.drawRBox(xDir - (largOlho / 2), yTop, largOlho, alturaOlho, raioBorda);
+  u8g2.drawRBox(42 - (largura / 2) + deslocX, yTop, largura, alturaOlho, raioBorda);
+  u8g2.drawRBox(86 - (largura / 2) + deslocX, yTop, largura, alturaOlho, raioBorda);
 }
 
 void desenharFaceFeliz() {
-  int raio = (telaH <= 64) ? 12 : 18;
-  int separacao = (telaH <= 64) ? 22 : 26;
-  int yArc = centroY + (telaH <= 64 ? 2 : 4);
-
-  // Dois semicírculos sorridentes estilizados (^)
-  u8g2.drawDisc(centroX - separacao, yArc, raio, U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT);
-  u8g2.drawDisc(centroX + separacao, yArc, raio, U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT);
+  // Dois arcos sorridentes estilizados (^)
+  u8g2.drawDisc(42, 60, 18, U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT);
+  u8g2.drawDisc(86, 60, 18, U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT);
 }
 
 void desenharFaceOuvindo() {
-  int altOlho = (telaH <= 64) ? 24 : 34;
-  int raio = (telaH <= 64) ? 6 : 10;
-  desenharOlhos(altOlho, raio, 0, (telaH <= 64 ? -4 : -6));
-
-  // Mini Reator Arc pulsante centralizado na parte inferior da tela
-  int yArc = (telaH <= 64) ? 54 : 110;
-  int raioArc = (telaH <= 64) ? 4 : 6;
-  u8g2.drawCircle(centroX, yArc, raioArc);
-  u8g2.drawDisc(centroX, yArc, max(1, raioArc - 3));
+  // Olhos arregalados e reator Arc sutil pulsante
+  desenharOlhos(34, 10, 0, 0);
+  u8g2.drawCircle(64, 110, 6);
+  u8g2.drawDisc(64, 110, 2);
 }
 
 void desenharFaceSono() {
-  int largOlho = (telaH <= 64) ? 26 : 32;
-  int separacao = (telaH <= 64) ? 22 : 26;
-  int espessura = (telaH <= 64) ? 3 : 4;
-  int yLinha = centroY;
-
-  // Dois traços horizontais fechados
-  u8g2.drawBox(centroX - separacao - (largOlho / 2), yLinha, largOlho, espessura);
-  u8g2.drawBox(centroX + separacao - (largOlho / 2), yLinha, largOlho, espessura);
+  // Olhos fechados (duas linhas horizontais espessas)
+  u8g2.drawBox(26, 64, 32, 4);
+  u8g2.drawBox(70, 64, 32, 4);
 }
 
 void atualizarDisplay() {
   u8g2.firstPage();
+  do {
+    switch (expressaoAtual) {
+      case FACE_NEUTRO:
+        desenharOlhos(28, 8, 0, 0);
+        break;
+      case FACE_PISCANDO:
+        desenharOlhos(4, 2, 0, 0);
+        break;
+      case FACE_OUVINDO:
+        desenharFaceOuvindo();
+        break;
+      case FACE_FELIZ:
+        desenharFaceFeliz();
+        break;
+      case FACE_FOCADO:
+        desenharOlhos(20, 4, 4, -4);
+        break;
+      case FACE_SONO:
+        desenharFaceSono();
+        break;
+    }
+  } while (u8g2.nextPage());
+}
   do {
     switch (expressaoAtual) {
       case FACE_NEUTRO:
@@ -272,30 +266,9 @@ void rotinaApontar() {
 // ==============================================================================
 
 void setup() {
-  // Inicialização serial em 115200 baud
   Serial.begin(115200);
 
-  // Display: sequência idêntica à versão que já mostrava os olhos (begin() faz o reset pelo pino 8).
   u8g2.begin();
-  u8g2.setPowerSave(0);
-
-  telaW = u8g2.getDisplayWidth();
-  telaH = u8g2.getDisplayHeight();
-  centroX = telaW / 2;
-  centroY = telaH / 2;
-  Serial.print("OLED_DIM:"); Serial.print(telaW); Serial.print("x"); Serial.println(telaH);
-
-  // Teste de tela: moldura + texto por 1,5 s (se isto não aparecer, o problema é fiação/driver)
-  u8g2.firstPage();
-  do {
-    u8g2.drawFrame(0, 0, telaW, telaH);
-    u8g2.setFont(u8g2_font_6x10_tf);
-    u8g2.drawStr(centroX - 18, centroY, "JARVIS");
-  } while (u8g2.nextPage());
-  delay(1500);
-
-  expressaoAtual = FACE_NEUTRO;
-  atualizarDisplay();
 
   garantirServosAtivos();
   posturaProntidao();
