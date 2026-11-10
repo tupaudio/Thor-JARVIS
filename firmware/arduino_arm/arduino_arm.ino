@@ -37,9 +37,9 @@ Servo servoBase, servoOmbro, servoCotovelo, servoGarra;
 Servo servoBase2;
 #endif
 
-int posBase = 90, posOmbro = 90, posCotovelo = 90, posGarra = 105;
-const int GARRA_ABERTA  = 25;  // Abertura ampla calibrada
-const int GARRA_FECHADA = 105; // Fechamento suave calibrado
+int posBase = 90, posOmbro = 90, posCotovelo = 90, posGarra = 100;
+const int GARRA_ABERTA  = 90;  // Quase fechada (apenas 10 graus de folga para teste sem forcar mecanica)
+const int GARRA_FECHADA = 100; // Fechada segura sem atingir batente ou travar rotor
 
 unsigned long ultimoMovimentoTs = 0;
 bool servosEnergizados = false;
