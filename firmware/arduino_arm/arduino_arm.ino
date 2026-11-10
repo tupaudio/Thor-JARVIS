@@ -441,6 +441,7 @@ void setup() {
   // Desenergiza os servos após o diagnóstico: proteção térmica inicial
   desenergizarServos();
 
+  Serial.println("DEVICE:JARVIS_ARM:V3:ONLINE");
   Serial.println("JARVIS_ONLINE_READY");
 }
 
@@ -486,6 +487,8 @@ void loop() {
 
     if (comando == "CMD:PING" || comando == "PING") {
       Serial.println("ACK:JARVIS_ARM_PONG");
+    } else if (comando == "CMD:WHO_ARE_YOU" || comando == "CMD:IDENTIFY" || comando == "WHO_ARE_YOU") {
+      Serial.println("DEVICE:JARVIS_ARM:V3:RESOURCES[SERVOS,CLAW,OLED_EYES,GESTURES]");
     } else if (comando == "CMD:WAVE") {
       rotinaAcenar();
       Serial.println("ACK:WAVE_DONE");

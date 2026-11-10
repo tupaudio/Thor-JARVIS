@@ -88,6 +88,10 @@ def main():
     from telegram_service import telegram_service
     from iphone_dock_server import iniciar_dock_server
     from octoprint_service import octoprint_service
+    from device_bus import device_bus
+
+    # Inicia auto-descoberta dinâmica de periféricos USB Plug-and-Play
+    device_bus.iniciar()
 
     if not os.getenv("GEMINI_API_KEY", "").strip() and os.getenv("CLOUD_AI_PROVIDER", "gemini") == "gemini":
         print("⚠️  GEMINI_API_KEY ausente no .env: o modo nuvem Gemini não funcionará até configurá-la.")

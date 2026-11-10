@@ -87,8 +87,17 @@ class SerialCommController:
 
                 porta_alvo = None
 
+                # 0. Consulta primeiro o DeviceBus (gerenciador de auto-descoberta plug-and-play)
+                try:
+                    from device_bus import device_bus
+                    p_bus = device_bus.obter_porta("arm")
+                    if p_bus and os.path.exists(p_bus):
+                        porta_alvo = p_bus
+                except Exception:
+                    pass
+
                 # 1. Porta definida no .env (ex: /dev/ttyUSB0, /dev/ttyUSB2 ou /dev/ttyACM0)
-                if self.porta_configurada and self.porta_configurada.lower() not in ("none", "", "disabled"):
+                if not porta_alvo and self.porta_configurada and self.porta_configurada.lower() not in ("none", "", "disabled"):
                     caminho_real = os.path.realpath(self.porta_configurada)
                     if caminho_real in bloqueadas:
                         print(f"⛔ [SERIAL] ARDUINO_PORT={self.porta_configurada} aponta para a porta da impressora. Ignorada.")
@@ -167,6 +176,12 @@ class SerialCommController:
                 self._tentou_conectar = True
                 self.porta_configurada = porta_conectada
                 print(f"✅ [SERIAL] Arduino UNO conectado e sincronizado com sucesso na porta {porta_conectada}!")
+
+                try:
+                    from device_bus import device_bus
+                    device_bus.registrar_porta_externa("arm", porta_conectada)
+                except Exception:
+                    pass
 
                 # Sincroniza a persona ativa imediatamente no badge OLED
                 try:
