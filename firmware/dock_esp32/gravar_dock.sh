@@ -5,32 +5,54 @@
 # ==============================================================================
 set -e
 
-DIR_PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIR_PROJ="$(cd "$(dirname "${BASH_SOURCEd[0]:-$0}")" && pwd)"
 cd "${DIR_PROJ}"
 
 echo "🤖 [JARVIS DOCK] Iniciando processo de gravação do ESP32-S3..."
 
-# 1. Localizar PlatformIO Core (pio)
-PIO_CMD="pio"
-if ! command -v pio &>/dev/null; then
+# 1. Localizar ou Instalar PlatformIO Core (respeitando PEP 668 do Debian 13)
+PIO_CMD=""
+
+if command -v pio &>/dev/null; then
+    PIO_CMD="pio"
+elif [ -f "${HOME}/.platformio/penv/bin/pio" ]; then
+    PIO_CMD="${HOME}/.platformio/penv/bin/pio"
+elif [ -f "${HOME}/.local/bin/pio" ]; then
+    PIO_CMD="${HOME}/.local/bin/pio"
+elif [ -f "/usr/local/bin/pio" ]; then
+    PIO_CMD="/usr/local/bin/pio"
+fi
+
+if [ -z "${PIO_CMD}" ]; then
+    echo "📦 PlatformIO não encontrado. Instalando via instalador oficial isolado..."
+    
+    # Tenta usar o instalador oficial standalone do PlatformIO
+    curl -fsSL -o /tmp/get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py
+    python3 /tmp/get-platformio.py || {
+        echo "⚙️  Instalando em venv dedicado ~/.platformio/penv..."
+        python3 -m venv "${HOME}/.platformio/penv"
+        "${HOME}/.platformio/penv/bin/pip" install --upgrade platformio
+    }
+    
     if [ -f "${HOME}/.platformio/penv/bin/pio" ]; then
         PIO_CMD="${HOME}/.platformio/penv/bin/pio"
     elif [ -f "${HOME}/.local/bin/pio" ]; then
         PIO_CMD="${HOME}/.local/bin/pio"
-    elif [ -f "/usr/local/bin/pio" ]; then
-        PIO_CMD="/usr/local/bin/pio"
-    else
-        echo "📦 PlatformIO não encontrado. Instalando localmente no usuário..."
-        pip install --upgrade platformio || pip3 install --user platformio
-        PIO_CMD="${HOME}/.local/bin/pio"
     fi
 fi
+
+if [ -z "${PIO_CMD}" ] || [ ! -x "${PIO_CMD}" ]; then
+    echo "❌ Erro: Não foi possível configurar o executável do PlatformIO."
+    exit 1
+fi
+
+echo "✅ PlatformIO pronto: ${PIO_CMD}"
 
 # 2. Identificar a porta USB do ESP32-S3 (Protegendo /dev/ttyUSB0 e /dev/ttyUSB1)
 PORTA_ALVO="${1:-}"
 
 if [ -z "${PORTA_ALVO}" ]; then
-    # Busca especificamente por dispositivos CDC (ttyACM*) ou identificadores Espressif
+    # Busca por dispositivos CDC do ESP32-S3 (ttyACM*)
     for dev in /dev/ttyACM0 /dev/ttyACM1 /dev/ttyACM2; do
         if [ -e "${dev}" ]; then
             PORTA_ALVO="${dev}"
@@ -46,13 +68,15 @@ if [ -z "${PORTA_ALVO}" ]; then
     read -rp "Digite a porta USB do ESP32-S3 (ex: /dev/ttyACM0): " PORTA_ALVO
 fi
 
+# Resolve links simbólicos se houver
+PORTA_ALVO=$(readlink -f "${PORTA_ALVO}" 2>/dev/null || echo "${PORTA_ALVO}")
 echo "✅ Porta selecionada para o Dock: ${PORTA_ALVO}"
 
 # 3. Compilação e Gravação via PlatformIO
 echo "🔨 Compilando firmware com LovyanGFX e DMA..."
 ${PIO_CMD} run -e esp32-s3-supermini
 
-echo "🚀 Enviando firmware para o ESP32-S3..."
+echo "🚀 Enviando firmware para o ESP32-S3 na porta ${PORTA_ALVO}..."
 ${PIO_CMD} run -e esp32-s3-supermini --target upload --upload-port "${PORTA_ALVO}"
 
 echo "🎉 [SUCESSO] Firmware do Dock gravado com sucesso no ESP32-S3!"
