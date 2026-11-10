@@ -46,7 +46,7 @@
     "tipo": "tomada",
     "comodo": "estacao",
     "protocolo": "simulado",
-    "status": "desligado",
+    "status": "ligado",
     "brilho": 100,
     "cor": "",
     "ip": "",

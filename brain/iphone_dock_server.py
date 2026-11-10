@@ -604,11 +604,10 @@ HTML_STARK_HUD = r"""<!DOCTYPE html>
   .btn-stack {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 7px;
     flex: 1;
+    justify-content: space-between;
     min-height: 0;
-    overflow-y: auto;
-    padding-right: 2px;
   }
 
   /* BOTÕES GLASSMORFICOS HIGH-TECH */
@@ -1044,12 +1043,12 @@ HTML_STARK_HUD = r"""<!DOCTYPE html>
             <div class="status-led"></div>
           </button>
 
-          <button class="ctrl-btn" onclick="moverBraco('pronto')">
+          <button class="ctrl-btn" id="btn_garra" onclick="alternarGarra()">
             <div class="ctrl-left">
-              <div class="ctrl-icon">⚡</div>
+              <div class="ctrl-icon" id="ic_garra">✊</div>
               <div class="ctrl-info">
-                <div class="ctrl-name">Prontidão</div>
-                <div class="ctrl-state">Posição Alerta</div>
+                <div class="ctrl-name">Garra</div>
+                <div class="ctrl-state" id="st_garra">Alternar Abertura</div>
               </div>
             </div>
             <div class="status-led"></div>
@@ -1061,28 +1060,6 @@ HTML_STARK_HUD = r"""<!DOCTYPE html>
               <div class="ctrl-info">
                 <div class="ctrl-name">Repouso</div>
                 <div class="ctrl-state">Recolher Servos</div>
-              </div>
-            </div>
-            <div class="status-led"></div>
-          </button>
-
-          <button class="ctrl-btn" onclick="moverBraco('abrir garra')">
-            <div class="ctrl-left">
-              <div class="ctrl-icon">👐</div>
-              <div class="ctrl-info">
-                <div class="ctrl-name">Abrir Garra</div>
-                <div class="ctrl-state">Curso 60°</div>
-              </div>
-            </div>
-            <div class="status-led"></div>
-          </button>
-
-          <button class="ctrl-btn" onclick="moverBraco('fechar garra')">
-            <div class="ctrl-left">
-              <div class="ctrl-icon">✊</div>
-              <div class="ctrl-info">
-                <div class="ctrl-name">Fechar Garra</div>
-                <div class="ctrl-state">Seguro 100°</div>
               </div>
             </div>
             <div class="status-led"></div>
@@ -1577,6 +1554,17 @@ HTML_STARK_HUD = r"""<!DOCTYPE html>
       body: JSON.stringify({acao})
     });
     carregarEstado();
+  }
+
+  let garraAberta = false;
+  async function alternarGarra() {
+    garraAberta = !garraAberta;
+    const acao = garraAberta ? 'abrir garra' : 'fechar garra';
+    const stEl = document.getElementById('st_garra');
+    const icEl = document.getElementById('ic_garra');
+    if (stEl) stEl.innerText = garraAberta ? 'Aberta (60°)' : 'Fechada (100°)';
+    if (icEl) icEl.innerText = garraAberta ? '👐' : '✊';
+    await moverBraco(acao);
   }
 
   async function mudarPersona(idPersona) {
