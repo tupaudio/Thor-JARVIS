@@ -19,27 +19,14 @@
 #include <U8g2lib.h>
 #include <Servo.h>
 
-// ---------------- CONFIGURAÇÃO DO DISPLAY OLED ----------------
-// Seletor de Driver para telas 1.5" 128x128 SPI:
-// 1 = SH1107 Padrão Genérico
-// 2 = SH1107 Seeed (com Charge Pump interno para módulos chineses GME128128)
-// 3 = SSD1327 Waveshare (comum em módulos de 1.5" rotulados como SH1107)
-#define OLED_DRIVER_TYPE 2
-
-// Nova fiação física reconfigurada pelo usuário:
-const uint8_t OLED_PIN_CLK = 8;   // SCL / Clock
-const uint8_t OLED_PIN_DIN = 9;   // SDA / Data
-const uint8_t OLED_PIN_DC  = 10;  // Data / Command
-const uint8_t OLED_PIN_CS  = 11;  // Chip Select
-const uint8_t OLED_PIN_RST = 12;  // Reset
-
-#if OLED_DRIVER_TYPE == 1
-U8G2_SH1107_128X128_1_4W_SW_SPI u8g2(U8G2_R2, OLED_PIN_CLK, OLED_PIN_DIN, OLED_PIN_CS, OLED_PIN_DC, OLED_PIN_RST);
-#elif OLED_DRIVER_TYPE == 2
-U8G2_SH1107_SEEED_128X128_1_4W_SW_SPI u8g2(U8G2_R2, OLED_PIN_CLK, OLED_PIN_DIN, OLED_PIN_CS, OLED_PIN_DC, OLED_PIN_RST);
-#elif OLED_DRIVER_TYPE == 3
-U8G2_SSD1327_WS_128X128_1_4W_SW_SPI u8g2(U8G2_R2, OLED_PIN_CLK, OLED_PIN_DIN, OLED_PIN_CS, OLED_PIN_DC, OLED_PIN_RST);
-#endif
+// ---------------- CONFIGURAÇÃO DO DISPLAY OLED (HARDWARE SPI) ----------------
+// Configuração Oficial Comprovada (commit 0bde085):
+// - SCL (CLK) -> D13 (SCK - Hardware SPI)
+// - SDA (DIN) -> D11 (MOSI - Hardware SPI)
+// - CS        -> D10 (Chip Select)
+// - DC        -> D9  (Data / Command)
+// - RST       -> D8  (Hardware Reset)
+U8G2_SH1107_PIMORONI_128X128_1_4W_HW_SPI u8g2(U8G2_R2, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 
 #define U8G2_SEMICIRCLE_UPPER (U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT)
 #define U8G2_SEMICIRCLE_LOWER (U8G2_DRAW_LOWER_RIGHT | U8G2_DRAW_LOWER_LEFT)
@@ -231,16 +218,17 @@ void definirFace(Expressao e) {
 }
 
 void iniciarDisplay() {
-  // Pulso de Reset físico dedicado no pino 12 (conforme nova pinagem)
-  pinMode(OLED_PIN_RST, OUTPUT);
-  digitalWrite(OLED_PIN_RST, HIGH); delay(10);
-  digitalWrite(OLED_PIN_RST, LOW);  delay(50);
-  digitalWrite(OLED_PIN_RST, HIGH); delay(50);
+  // Pulso de Reset físico no pino 8
+  pinMode(8, OUTPUT);
+  digitalWrite(8, HIGH); delay(10);
+  digitalWrite(8, LOW);  delay(50);
+  digitalWrite(8, HIGH); delay(50);
 
-  // CS (Pino 11) mantido em HIGH
-  pinMode(OLED_PIN_CS, OUTPUT);
-  digitalWrite(OLED_PIN_CS, HIGH);
+  // CS (Pino 10) mantido em OUTPUT HIGH
+  pinMode(10, OUTPUT);
+  digitalWrite(10, HIGH);
 
+  u8g2.setBusClock(1000000);
   u8g2.begin();
   u8g2.setPowerSave(0);
   u8g2.setContrast(255);
