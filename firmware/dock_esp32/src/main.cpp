@@ -1,7 +1,8 @@
 /*
  * ==============================================================================
- * J.A.R.V.I.S. - Dock Terminal Inteligente 4.0" Touch (ESP32-S3 + ILI9488)
- * Firmware de Bancada: LovyanGFX + DMA + Rosto Expressivo + Touch XPT2046 + USB CDC
+ * J.A.R.V.I.S. - Dock Terminal Inteligente 4.0" (ESP32-S3 + ILI9488)
+ * Firmware de Bancada: LovyanGFX + DMA + Rosto Expressivo + USB CDC
+ * (Modo de Diagnóstico Seguro para Jumpers de Bancada - Touch Desativado)
  * ==============================================================================
  */
 
@@ -11,13 +12,12 @@
 #include <LovyanGFX.hpp>
 
 // ==============================================================================
-// 1. CONFIGURAÇÃO DE HARDWARE LOVYANGFX (ESP32-S3 -> ILI9488 + XPT2046)
+// 1. CONFIGURAÇÃO DE HARDWARE LOVYANGFX (ESP32-S3 -> ILI9488)
 // ==============================================================================
 class LGFX_JarvisDock : public lgfx::LGFX_Device {
   lgfx::Panel_ILI9488  _panel_instance;
   lgfx::Bus_SPI        _bus_instance;
   lgfx::Light_PWM      _light_instance;
-  lgfx::Touch_XPT2046  _touch_instance;
 
 public:
   LGFX_JarvisDock() {
@@ -26,13 +26,13 @@ public:
       auto cfg = _bus_instance.config();
       cfg.spi_host = SPI2_HOST;     // FSPI nativo do ESP32-S3
       cfg.spi_mode = 0;
-      cfg.freq_write = 40000000;    // 40 MHz para estabilidade máxima em jumpers
-      cfg.freq_read  = 16000000;
+      cfg.freq_write = 15000000;    // 15 MHz: Estabilidade absoluta em jumpers de bancada
+      cfg.freq_read  = 10000000;
       cfg.use_lock   = true;
       cfg.dma_channel = SPI_DMA_CH_AUTO;
       cfg.pin_sclk = 12;            // SCK
       cfg.pin_mosi = 11;            // MOSI / SDI
-      cfg.pin_miso = 13;            // MISO exclusivo do touch
+      cfg.pin_miso = -1;            // Sem MISO para o display
       cfg.pin_dc   = 9;             // DC / RS
       _bus_instance.config(cfg);
       _panel_instance.setBus(&_bus_instance);
@@ -47,10 +47,10 @@ public:
       cfg.panel_height = 480;
       cfg.offset_x     = 0;
       cfg.offset_y     = 0;
-      cfg.bus_shared   = true;
-      cfg.readable     = false;     // SDO do display solto
+      cfg.bus_shared   = false;     // Barramento exclusivo do display por enquanto
+      cfg.readable     = false;     // SDO solto
       cfg.invert       = false;
-      cfg.rgb_order    = false;     // Se as cores ficarem invertidas, altere para true
+      cfg.rgb_order    = false;     // Padrão RGB
       cfg.dlen_16bit   = false;
       _panel_instance.config(cfg);
     }
@@ -59,29 +59,10 @@ public:
     {
       auto cfg = _light_instance.config();
       cfg.pin_bl = 7;               // GPIO 7 para PWM de brilho
-      cfg.freq   = 12000;           // 12 kHz anti-flicker
+      cfg.freq   = 10000;           // 10 kHz
       cfg.pwm_channel = 1;
       _light_instance.config(cfg);
       _panel_instance.setLight(&_light_instance);
-    }
-
-    // Configuração do Touch XPT2046
-    {
-      auto cfg = _touch_instance.config();
-      cfg.spi_host = SPI2_HOST;
-      cfg.freq     = 2500000;       // 2.5 MHz estável para o XPT2046
-      cfg.pin_sclk = 12;
-      cfg.pin_mosi = 11;
-      cfg.pin_miso = 13;            // T_DO
-      cfg.pin_cs   = 5;             // T_CS
-      cfg.pin_int  = 4;             // T_IRQ
-      cfg.bus_shared = true;
-      cfg.x_min    = 300;
-      cfg.x_max    = 3900;
-      cfg.y_min    = 300;
-      cfg.y_max    = 3900;
-      _touch_instance.config(cfg);
-      _panel_instance.setTouch(&_touch_instance);
     }
 
     setPanel(&_panel_instance);
@@ -90,7 +71,7 @@ public:
 
 LGFX_JarvisDock lcd;
 
-// Sprites de double-buffering DMA para animação de alta performance dos olhos
+// Sprites de double-buffering DMA para animação dos olhos
 LGFX_Sprite eyeLeft(&lcd);
 LGFX_Sprite eyeRight(&lcd);
 
@@ -132,20 +113,20 @@ unsigned long lastSaccadeTs = 0;
 unsigned long nextSaccadeInterval = 4000;
 
 // Paleta de Cores Cyberpunk JARVIS
-const uint16_t COLOR_BG       = 0x0000; // Preto absoluto OLED/LCD
+const uint16_t COLOR_BG       = 0x0000; // Preto
 const uint16_t COLOR_CYAN     = 0x07FF; // Ciano vibrante Arc Reactor
-const uint16_t COLOR_BLUE_GLOW= 0x03B9; // Azul profundo de brilho
-const uint16_t COLOR_ORANGE   = 0xFD20; // Alerta Iron Man
+const uint16_t COLOR_BLUE_GLOW= 0x03B9; // Azul de brilho
+const uint16_t COLOR_ORANGE   = 0xFD20; // Alerta
 const uint16_t COLOR_WHITE    = 0xFFFF; // Centro do olho
 
 // ==============================================================================
-// 3. ATUALIZAÇÃO E DESENHO DOS OLHOS VIA SPRITES PARCIAIS (DMA)
+// 3. ATUALIZAÇÃO E DESENHO DOS OLHOS
 // ==============================================================================
 void desenharOlhoNoSprite(LGFX_Sprite &spr, float h, float w, Mood mood, bool isLeft) {
   spr.fillScreen(COLOR_BG);
 
   if (h <= 4) {
-    // Olho fechado / piscada rápida (linha horizontal suave)
+    // Olho fechado / piscada
     spr.fillRoundRect(8, (EYE_MAX_H / 2) - 3, EYE_MAX_W - 16, 6, 3, COLOR_CYAN);
     return;
   }
@@ -158,17 +139,15 @@ void desenharOlhoNoSprite(LGFX_Sprite &spr, float h, float w, Mood mood, bool is
 
   // Borda externa de brilho
   spr.fillRoundRect(x, y, (int)w, (int)h, r, COLOR_BLUE_GLOW);
-  // Centro brilhante principal
+  // Centro brilhante
   spr.fillRoundRect(x + 3, y + 3, (int)w - 6, (int)h - 6, max(2, r - 3), eyeColor);
-  // Reflexo de luz branco no topo do olho (estilo anime / Pixar)
+  // Reflexo de luz branco
   spr.fillCircle(x + (int)w - 18, y + 16, 7, COLOR_WHITE);
 
   // Modificadores de humor
   if (mood == MOOD_HAPPY) {
-    // Corta a parte inferior do olho para criar a expressão sorridente estilo EVE
     spr.fillRect(x, y + ((int)h * 0.65f), (int)w, (int)h * 0.4f, COLOR_BG);
   } else if (mood == MOOD_THINKING) {
-    // Linha de pálpebra superior inclinada
     if (isLeft) spr.fillTriangle(x, y, x + (int)w, y, x + (int)w, y + 25, COLOR_BG);
     else spr.fillTriangle(x, y, x + (int)w, y, x, y + 25, COLOR_BG);
   }
@@ -186,9 +165,9 @@ void atualizarAnimacaoOlhos() {
   if (isBlinking) {
     unsigned long elapsed = now - blinkStartTs;
     if (elapsed < 80) {
-      tgtEyeH = 2.0f; // Fechando
+      tgtEyeH = 2.0f;
     } else if (elapsed < 160) {
-      tgtEyeH = EYE_MAX_H; // Abrindo
+      tgtEyeH = EYE_MAX_H;
     } else {
       isBlinking = false;
       lastBlinkTs = now;
@@ -198,30 +177,29 @@ void atualizarAnimacaoOlhos() {
     tgtEyeH = (currentMood == MOOD_SLEEP) ? 6.0f : EYE_MAX_H;
   }
 
-  // 2. Micro-sacadas de Olhar (Observando o ambiente)
+  // 2. Micro-sacadas de Olhar
   if (!isBlinking && (now - lastSaccadeTs > nextSaccadeInterval)) {
     lastSaccadeTs = now;
     nextSaccadeInterval = random(3000, 7000);
     int r = random(0, 5);
-    if (r == 0) { tgtOffsetX = 0; tgtOffsetY = 0; }           // Centro
-    else if (r == 1) { tgtOffsetX = -20; tgtOffsetY = 0; }    // Esquerda
-    else if (r == 2) { tgtOffsetX = 20; tgtOffsetY = 0; }     // Direita
-    else if (r == 3) { tgtOffsetX = 0; tgtOffsetY = -12; }    // Cima
-    else if (r == 4) { tgtOffsetX = 12; tgtOffsetY = 10; }    // Baixo-Direita
+    if (r == 0) { tgtOffsetX = 0; tgtOffsetY = 0; }
+    else if (r == 1) { tgtOffsetX = -20; tgtOffsetY = 0; }
+    else if (r == 2) { tgtOffsetX = 20; tgtOffsetY = 0; }
+    else if (r == 3) { tgtOffsetX = 0; tgtOffsetY = -12; }
+    else if (r == 4) { tgtOffsetX = 12; tgtOffsetY = 10; }
   }
 
-  // 3. Suavização Exponencial (Tweening)
+  // 3. Suavização Exponencial
   curEyeH += (tgtEyeH - curEyeH) * 0.35f;
   curEyeW += (tgtEyeW - curEyeW) * 0.35f;
   eyeOffsetX += (tgtOffsetX - eyeOffsetX) * 0.25f;
   eyeOffsetY += (tgtOffsetY - eyeOffsetY) * 0.25f;
 
-  // 4. Desenho nos Sprites Parciais
+  // 4. Desenho nos Sprites
   desenharOlhoNoSprite(eyeLeft, curEyeH, curEyeW, currentMood, true);
   desenharOlhoNoSprite(eyeRight, curEyeH, curEyeW, currentMood, false);
 
-  // 5. Envio instantâneo via DMA nas posições relativas (Landscape 480x320)
-  // Olho Esquerdo: centro em X=140, Olho Direito: centro em X=340
+  // 5. Envio instantâneo via DMA (Landscape 480x320)
   int posX_L = 140 - (EYE_MAX_W / 2) + eyeOffsetX;
   int posY_L = 160 - (EYE_MAX_H / 2) + eyeOffsetY;
   int posX_R = 340 - (EYE_MAX_W / 2) + eyeOffsetX;
@@ -247,29 +225,46 @@ void desenharHUD() {
   lcd.drawFastHLine(10, 305, 460, COLOR_BLUE_GLOW);
 
   lcd.setCursor(15, 308);
-  lcd.print("STATUS: ONLINE // TOQUE NA TELA PARA TESTE");
+  lcd.print("STATUS: ONLINE // SISTEMA ATIVO");
 }
 
 // ==============================================================================
 // 5. SETUP E LOOP PRINCIPAL
 // ==============================================================================
 void setup() {
-  // Inicializa comunicação serial USB-C CDC
   Serial.begin(115200);
   delay(1000);
 
   Serial.println("\n==================================================");
   Serial.println("🤖 [JARVIS DOCK] Inicializando ESP32-S3 + ILI9488 4.0\"");
-  Serial.println("🔌 Interface: LovyanGFX Hardware SPI DMA @ 40MHz");
+  Serial.println("🔌 Interface: LovyanGFX Hardware SPI @ 15MHz");
+  Serial.println("📌 Pinagem: CS=10, RST=8, DC=9, MOSI=11, SCK=12, BL=7");
   Serial.println("==================================================");
 
-  // Inicializa o Display e Touch
+  // 1. Pulso físico de Reset no pino 8
+  Serial.println("1. Disparando pulso de Hardware Reset no pino 8...");
+  pinMode(8, OUTPUT);
+  digitalWrite(8, HIGH); delay(20);
+  digitalWrite(8, LOW);  delay(60);
+  digitalWrite(8, HIGH); delay(150);
+  Serial.println("   -> Reset concluído.");
+
+  // 2. Inicialização do display
+  Serial.println("2. Inicializando controlador ILI9488 com lcd.init()...");
   lcd.init();
   lcd.setRotation(1);           // 1 = Modo Paisagem (480 x 320)
-  lcd.setBrightness(200);       // Brilho agradável (80%)
-  lcd.fillScreen(COLOR_BG);
+  lcd.setBrightness(220);       // Backlight em nível alto
+  Serial.println("   -> Display inicializado!");
 
-  // Criação dos Sprites de Olho na Memória Interna / PSRAM
+  // 3. Teste visual rápido de cores primárias (verificação imediata do painel)
+  Serial.println("3. Executando flash de teste RGB...");
+  lcd.fillScreen(0xF800); delay(400); // Vermelho
+  lcd.fillScreen(0x07E0); delay(400); // Verde
+  lcd.fillScreen(0x001F); delay(400); // Azul
+  lcd.fillScreen(COLOR_BG);           // Preto
+
+  // 4. Criação dos Sprites de Olho
+  Serial.println("4. Criando sprites de olho para renderizacao...");
   eyeLeft.setColorDepth(16);
   eyeLeft.createSprite(EYE_MAX_W, EYE_MAX_H);
 
@@ -278,27 +273,20 @@ void setup() {
 
   desenharHUD();
 
-  Serial.println("✅ [SISTEMA PRONTO] Olhos e Touch Ativos!");
+  Serial.println("✅ [SISTEMA PRONTO] Olhos e Interface Ativos no Loop!");
 }
 
+unsigned long lastHeartbeat = 0;
+
 void loop() {
-  // 1. Atualiza Animação Facial em Alta Taxa (Sprite DMA parcial)
+  // 1. Atualiza Animação Facial
   atualizarAnimacaoOlhos();
 
-  // 2. Leitura do Touch XPT2046
-  uint16_t touchX, touchY;
-  if (lcd.getTouch(&touchX, &touchY)) {
-    // Efeito visual de clique no ponto tocado
-    lcd.fillCircle(touchX, touchY, 6, COLOR_WHITE);
-    lcd.drawCircle(touchX, touchY, 14, COLOR_CYAN);
-
-    // Envia evento via Serial para o Servidor Python
-    Serial.printf("{\"type\":\"touch\",\"x\":%d,\"y\":%d}\n", touchX, touchY);
-
-    // Feedback imediato no HUD inferior
-    lcd.fillRect(15, 308, 300, 10, COLOR_BG);
-    lcd.setCursor(15, 308);
-    lcd.printf("TOUCH: X=%d Y=%d", touchX, touchY);
+  // 2. Batimento cardíaco no Serial a cada 3 segundos
+  unsigned long now = millis();
+  if (now - lastHeartbeat > 3000) {
+    lastHeartbeat = now;
+    Serial.printf("⏱️ [HEARTBEAT] Dock ativo... millis=%lu\n", now);
   }
 
   // 3. Processamento de Comandos Seriais do Servidor (JSON v7)
@@ -323,5 +311,5 @@ void loop() {
     }
   }
 
-  delay(16); // ~60 FPS estáveis
+  delay(16); // ~60 FPS
 }

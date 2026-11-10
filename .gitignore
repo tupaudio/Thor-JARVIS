@@ -90,3 +90,6 @@ brain.bkp/
 
 .continue/
 *.continue*
+
+.pio/
+*.pio
