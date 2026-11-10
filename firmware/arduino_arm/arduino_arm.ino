@@ -1,47 +1,84 @@
 /*
- * J.A.R.V.I.S. - Firmware Oficial: Braço 4-DOF + Rosto no OLED 1.5" SH1107
- * Placa: Arduino UNO R3 + Sensor Shield V5.0
- * Versão Auditada e Otimizada (Baixo consumo de RAM, SW-SPI, Proteção Térmica e Fiação Segura)
+ * ==============================================================================
+ * J.A.R.V.I.S. - Firmware Oficial Auditado: Braço 4-DOF + Rosto no OLED 1.5"
+ * Placa: Arduino UNO R3 (ATmega328P) + Sensor Shield V5.0
+ * 
+ * AUDITORIA COMPLETA INTEGRADA (Claude + ChatGPT):
+ * 1. Nova Fiação OLED Software SPI (CLK=8, DIN=9, DC=10, CS=11, RST=12)
+ * 2. Limites mecânicos individuais por junta (evita stall e superaquecimento)
+ * 3. Movimentação isolada sem acionamento cruzado de servos
+ * 4. Parser serial protegido contra overflow de buffer
+ * 5. Watchdog de 4 segundos contra travamentos de barramento
+ * 6. Comandos de teste individual por junta (CMD:TEST:D3/D4/D5/D6)
+ * ==============================================================================
  */
 
 #include <Arduino.h>
 #include <avr/pgmspace.h>
+#include <avr/wdt.h>
 #include <U8g2lib.h>
 #include <Servo.h>
 
-// ---------------- CONFIGURAÇÃO DE HARDWARE ----------------
-#define USAR_SW_SPI      0      // 0 = Hardware SPI (D13 SCK, D11 MOSI - alta corrente e sincronismo), 1 = Software SPI
-#define BASE_DUPLA_D2    0      // 1 SOMENTE se houver um 2º servo físico no D2 (NUNCA ligar D2 e D6 no mesmo fio!)
-#define DIAG_NO_BOOT     1      // 1 = Calibração e teste suave ao ligar o braço
-#define TEMPO_DETACH_MS  1500UL // Tempo de inatividade (ms) até cortar PWM (proteção térmica)
+// ---------------- CONFIGURAÇÃO DO DISPLAY OLED ----------------
+// Seletor de Driver para telas 1.5" 128x128 SPI:
+// 1 = SH1107 Padrão Genérico
+// 2 = SH1107 Seeed (com Charge Pump interno para módulos chineses GME128128)
+// 3 = SSD1327 Waveshare (comum em módulos de 1.5" rotulados como SH1107)
+#define OLED_DRIVER_TYPE 2
+
+// Nova fiação física reconfigurada pelo usuário:
+const uint8_t OLED_PIN_CLK = 8;   // SCL / Clock
+const uint8_t OLED_PIN_DIN = 9;   // SDA / Data
+const uint8_t OLED_PIN_DC  = 10;  // Data / Command
+const uint8_t OLED_PIN_CS  = 11;  // Chip Select
+const uint8_t OLED_PIN_RST = 12;  // Reset
+
+#if OLED_DRIVER_TYPE == 1
+U8G2_SH1107_128X128_1_4W_SW_SPI u8g2(U8G2_R2, OLED_PIN_CLK, OLED_PIN_DIN, OLED_PIN_CS, OLED_PIN_DC, OLED_PIN_RST);
+#elif OLED_DRIVER_TYPE == 2
+U8G2_SH1107_SEEED_128X128_1_4W_SW_SPI u8g2(U8G2_R2, OLED_PIN_CLK, OLED_PIN_DIN, OLED_PIN_CS, OLED_PIN_DC, OLED_PIN_RST);
+#elif OLED_DRIVER_TYPE == 3
+U8G2_SSD1327_WS_128X128_1_4W_SW_SPI u8g2(U8G2_R2, OLED_PIN_CLK, OLED_PIN_DIN, OLED_PIN_CS, OLED_PIN_DC, OLED_PIN_RST);
+#endif
 
 #define U8G2_SEMICIRCLE_UPPER (U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT)
 #define U8G2_SEMICIRCLE_LOWER (U8G2_DRAW_LOWER_RIGHT | U8G2_DRAW_LOWER_LEFT)
 
-// Display OLED 1.5" 128x128 SPI (7 pinos: CLK=13, DIN=11, CS=10, DC=9, RST=8)
-#if USAR_SW_SPI
-U8G2_SH1107_SEEED_128X128_1_4W_SW_SPI u8g2(U8G2_R2, /*clk=*/13, /*data=*/11, /*cs=*/10, /*dc=*/9, /*reset=*/8);
-#else
-U8G2_SH1107_SEEED_128X128_1_4W_HW_SPI u8g2(U8G2_R2, /*cs=*/10, /*dc=*/9, /*reset=*/8);
-#endif
-
-// ---------------- SERVOMOTORES ----------------
-const uint8_t PIN_BASE     = 6; // Base primária física (D6)
-const uint8_t PIN_BASE_D2  = 2; // Reserva (isolado se BASE_DUPLA_D2 = 0)
+// ---------------- SERVOMOTORES & LIMITES MECÂNICOS SEGUROS ----------------
+const uint8_t PIN_BASE     = 6; // Base giratória (D6)
+const uint8_t PIN_BASE_D2  = 2; // Reserva isolada
 const uint8_t PIN_OMBRO    = 3; // Ombro (D3)
 const uint8_t PIN_COTOVELO = 4; // Cotovelo (D4)
 const uint8_t PIN_GARRA    = 5; // Garra (D5)
+
+#define BASE_DUPLA_D2    0      // 1 SOMENTE se houver um 2º servo físico no D2
+#define DIAG_NO_BOOT     0      // 0 = boot rápido e silencioso (evita flapping do braço por DTR)
+#define TEMPO_DETACH_MS  2000UL // Tempo de inatividade (ms) até cortar PWM (proteção térmica)
+
+// Limites angulares calibrados para braço de acrílico (protegem contra stall)
+const int BASE_MIN     = 45, BASE_MAX     = 135;
+const int OMBRO_MIN    = 45, OMBRO_MAX    = 105;
+const int COTOVELO_MIN = 40, COTOVELO_MAX = 70;  // Nunca passar de 70° no cotovelo!
+const int GARRA_MIN    = 50, GARRA_MAX    = 100;
+
+// Posições pré-definidas
+const int BASE_CENTRO        = 90;
+const int OMBRO_PRONTIDAO    = 85;
+const int OMBRO_DESCANSO     = 45;
+const int COTOVELO_PRONTIDAO = 60;
+const int COTOVELO_DESCANSO  = 45;
+const int GARRA_ABERTA       = 60;
+const int GARRA_FECHADA      = 100;
 
 Servo servoBase, servoOmbro, servoCotovelo, servoGarra;
 #if BASE_DUPLA_D2
 Servo servoBase2;
 #endif
 
-const int COTOVELO_DESCANSO  = 45;
-const int COTOVELO_PRONTIDAO = 60; // Aliviado de 90° para 60°: ereto sem forçar a articulação mecânica
-int posBase = 90, posOmbro = 90, posCotovelo = 60, posGarra = 100;
-const int GARRA_ABERTA  = 60;  // Abertura moderada visivel (40 graus de curso seguro sem stall)
-const int GARRA_FECHADA = 100; // Fechada segura sem atingir batente ou travar rotor
+int posBase     = BASE_CENTRO;
+int posOmbro    = OMBRO_PRONTIDAO;
+int posCotovelo = COTOVELO_PRONTIDAO;
+int posGarra    = GARRA_FECHADA;
 
 unsigned long ultimoMovimentoTs = 0;
 bool servosEnergizados = false;
@@ -179,10 +216,12 @@ void desenharFaceRealista(Expressao exp) {
 }
 
 void atualizarDisplay() {
+  wdt_reset();
   u8g2.firstPage();
   do {
     desenharFaceRealista(expressaoAtual);
   } while (u8g2.nextPage());
+  wdt_reset();
 }
 
 void definirFace(Expressao e) {
@@ -192,41 +231,28 @@ void definirFace(Expressao e) {
 }
 
 void iniciarDisplay() {
-  // Pulso de Reset no pino 8
-  pinMode(8, OUTPUT);
-  digitalWrite(8, HIGH); delay(10);
-  digitalWrite(8, LOW);  delay(50);
-  digitalWrite(8, HIGH); delay(50);
+  // Pulso de Reset físico dedicado no pino 12 (conforme nova pinagem)
+  pinMode(OLED_PIN_RST, OUTPUT);
+  digitalWrite(OLED_PIN_RST, HIGH); delay(10);
+  digitalWrite(OLED_PIN_RST, LOW);  delay(50);
+  digitalWrite(OLED_PIN_RST, HIGH); delay(50);
 
-  pinMode(10, OUTPUT);
-  digitalWrite(10, HIGH);
-#if !USAR_SW_SPI
-  u8g2.setBusClock(1000000);
-#endif
+  // CS (Pino 11) mantido em HIGH
+  pinMode(OLED_PIN_CS, OUTPUT);
+  digitalWrite(OLED_PIN_CS, HIGH);
+
   u8g2.begin();
   u8g2.setPowerSave(0);
   u8g2.setContrast(255);
 }
 
-// ---------------- SERVOS COM PROTEÇÃO TÉRMICA & ARRANQUE SUAVE ----------------
-static void anexar(Servo &s, uint8_t pin, int pos) {
+// ---------------- CONTROLE ISOLADO DE SERVOS ----------------
+static void anexarServo(Servo &s, uint8_t pin, int pos) {
   if (!s.attached()) {
     s.attach(pin);
-    s.write(pos); // Escreve posição conhecida antes para evitar trancos de 90°
-    delay(15);    // Escala inrush current entre servos
+    s.write(pos); // Escreve posição segura antes de ligar PWM
+    delay(15);
   }
-}
-
-void garantirServosAtivos() {
-  anexar(servoGarra, PIN_GARRA, posGarra);
-  anexar(servoCotovelo, PIN_COTOVELO, posCotovelo);
-  anexar(servoOmbro, PIN_OMBRO, posOmbro);
-  anexar(servoBase, PIN_BASE, posBase);
-#if BASE_DUPLA_D2
-  anexar(servoBase2, PIN_BASE_D2, posBase);
-#endif
-  servosEnergizados = true;
-  ultimoMovimentoTs = millis();
 }
 
 void desenergizarServos() {
@@ -240,11 +266,18 @@ void desenergizarServos() {
   servosEnergizados = false;
 }
 
-void moverSuave(Servo &servo, int &posAtual, int posAlvo, uint8_t delayMs = 12) {
-  garantirServosAtivos();
-  posAlvo = constrain(posAlvo, 0, 180);
+// Move unicamente o servo solicitado, sem perturbar os demais
+void moverSuave(Servo &servo, uint8_t pin, int &posAtual, int posAlvo, int minAng, int maxAng, uint8_t delayMs = 12) {
+  posAlvo = constrain(posAlvo, minAng, maxAng);
+  anexarServo(servo, pin, posAtual);
+#if BASE_DUPLA_D2
+  if (&servo == &servoBase) anexarServo(servoBase2, PIN_BASE_D2, posAtual);
+#endif
+  servosEnergizados = true;
+
   const int passo = (posAtual < posAlvo) ? 1 : -1;
   while (posAtual != posAlvo) {
+    wdt_reset();
     posAtual += passo;
     servo.write(posAtual);
 #if BASE_DUPLA_D2
@@ -257,87 +290,76 @@ void moverSuave(Servo &servo, int &posAtual, int posAlvo, uint8_t delayMs = 12) 
 
 // ---------------- ROTINAS COREOGRAFADAS DO BRAÇO ----------------
 void rotinaDiagnosticoInicial() {
-  garantirServosAtivos();
-  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
-  delay(400);
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+  moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_ABERTA, GARRA_MIN, GARRA_MAX, 10);
+  delay(300);
+  moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_FECHADA, GARRA_MIN, GARRA_MAX, 10);
   delay(150);
 
-  moverSuave(servoBase, posBase, 130, 14);
-  moverSuave(servoBase, posBase, 50, 14);
-  moverSuave(servoBase, posBase, 90, 14);
+  moverSuave(servoBase, PIN_BASE, posBase, 120, BASE_MIN, BASE_MAX, 14);
+  moverSuave(servoBase, PIN_BASE, posBase, 60, BASE_MIN, BASE_MAX, 14);
+  moverSuave(servoBase, PIN_BASE, posBase, BASE_CENTRO, BASE_MIN, BASE_MAX, 14);
 
-  moverSuave(servoOmbro, posOmbro, 110, 14);
-  moverSuave(servoOmbro, posOmbro, 70, 14);
-  moverSuave(servoOmbro, posOmbro, 90, 14);
+  moverSuave(servoOmbro, PIN_OMBRO, posOmbro, 95, OMBRO_MIN, OMBRO_MAX, 14);
+  moverSuave(servoOmbro, PIN_OMBRO, posOmbro, 65, OMBRO_MIN, OMBRO_MAX, 14);
+  moverSuave(servoOmbro, PIN_OMBRO, posOmbro, OMBRO_PRONTIDAO, OMBRO_MIN, OMBRO_MAX, 14);
 
-  moverSuave(servoCotovelo, posCotovelo, 65, 14);
-  moverSuave(servoCotovelo, posCotovelo, 45, 14);
-  moverSuave(servoCotovelo, posCotovelo, COTOVELO_PRONTIDAO, 14);
-  ultimoMovimentoTs = millis();
+  moverSuave(servoCotovelo, PIN_COTOVELO, posCotovelo, 65, COTOVELO_MIN, COTOVELO_MAX, 14);
+  moverSuave(servoCotovelo, PIN_COTOVELO, posCotovelo, 45, COTOVELO_MIN, COTOVELO_MAX, 14);
+  moverSuave(servoCotovelo, PIN_COTOVELO, posCotovelo, COTOVELO_PRONTIDAO, COTOVELO_MIN, COTOVELO_MAX, 14);
 }
 
 void posturaProntidao() {
-  garantirServosAtivos();
   definirFace(FACE_NEUTRO);
-  // Garra abre primeiro, o braço se ergue, e fecha por último
-  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
-  moverSuave(servoBase, posBase, 90, 12);
-  moverSuave(servoOmbro, posOmbro, 90, 12);
-  moverSuave(servoCotovelo, posCotovelo, COTOVELO_PRONTIDAO, 12);
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
-  ultimoMovimentoTs = millis();
+  moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_ABERTA, GARRA_MIN, GARRA_MAX, 10);
+  moverSuave(servoBase, PIN_BASE, posBase, BASE_CENTRO, BASE_MIN, BASE_MAX, 12);
+  moverSuave(servoOmbro, PIN_OMBRO, posOmbro, OMBRO_PRONTIDAO, OMBRO_MIN, OMBRO_MAX, 12);
+  moverSuave(servoCotovelo, PIN_COTOVELO, posCotovelo, COTOVELO_PRONTIDAO, COTOVELO_MIN, COTOVELO_MAX, 12);
+  moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_FECHADA, GARRA_MIN, GARRA_MAX, 10);
 }
 
 void posturaDescanso() {
-  garantirServosAtivos();
   definirFace(FACE_SONO);
-  // Garra abre primeiro, recolhe o braço, fecha e desliga PWM
-  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
-  moverSuave(servoBase, posBase, 90, 12);
-  moverSuave(servoCotovelo, posCotovelo, 45, 12);
-  moverSuave(servoOmbro, posOmbro, 45, 12);
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+  moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_ABERTA, GARRA_MIN, GARRA_MAX, 10);
+  moverSuave(servoBase, PIN_BASE, posBase, BASE_CENTRO, BASE_MIN, BASE_MAX, 12);
+  moverSuave(servoCotovelo, PIN_COTOVELO, posCotovelo, COTOVELO_DESCANSO, COTOVELO_MIN, COTOVELO_MAX, 12);
+  moverSuave(servoOmbro, PIN_OMBRO, posOmbro, OMBRO_DESCANSO, OMBRO_MIN, OMBRO_MAX, 12);
+  moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_FECHADA, GARRA_MIN, GARRA_MAX, 10);
   delay(150);
-  desenergizarServos(); // Proteção térmica imediata em todos os servos
+  desenergizarServos();
 }
 
 void rotinaAcenar() {
-  garantirServosAtivos();
   definirFace(FACE_FELIZ);
-  moverSuave(servoOmbro, posOmbro, 80, 10);
-  moverSuave(servoCotovelo, posCotovelo, COTOVELO_PRONTIDAO, 10);
+  moverSuave(servoOmbro, PIN_OMBRO, posOmbro, 80, OMBRO_MIN, OMBRO_MAX, 10);
+  moverSuave(servoCotovelo, PIN_COTOVELO, posCotovelo, COTOVELO_PRONTIDAO, COTOVELO_MIN, COTOVELO_MAX, 10);
   for (uint8_t j = 0; j < 3; j++) {
-    moverSuave(servoBase, posBase, 120, 8);
-    moverSuave(servoBase, posBase, 60, 8);
+    moverSuave(servoBase, PIN_BASE, posBase, 120, BASE_MIN, BASE_MAX, 8);
+    moverSuave(servoBase, PIN_BASE, posBase, 60, BASE_MIN, BASE_MAX, 8);
   }
-  moverSuave(servoBase, posBase, 90, 8);
+  moverSuave(servoBase, PIN_BASE, posBase, BASE_CENTRO, BASE_MIN, BASE_MAX, 8);
 
-  // Coreografia solicitada: abre a garra, mantém aberta por 2s e fecha
-  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
-  delay(2000);
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+  moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_ABERTA, GARRA_MIN, GARRA_MAX, 10);
+  delay(1200);
+  moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_FECHADA, GARRA_MIN, GARRA_MAX, 10);
 
   posturaProntidao();
 }
 
 void rotinaApontar() {
-  garantirServosAtivos();
   definirFace(FACE_FOCADO);
-  moverSuave(servoBase, posBase, 90, 10);
-  moverSuave(servoOmbro, posOmbro, 120, 10);
-  moverSuave(servoCotovelo, posCotovelo, 120, 10);
+  moverSuave(servoBase, PIN_BASE, posBase, BASE_CENTRO, BASE_MIN, BASE_MAX, 10);
+  moverSuave(servoOmbro, PIN_OMBRO, posOmbro, 95, OMBRO_MIN, OMBRO_MAX, 10); // Seguro: 95° em vez de 120°
+  moverSuave(servoCotovelo, PIN_COTOVELO, posCotovelo, 65, COTOVELO_MIN, COTOVELO_MAX, 10); // Seguro: 65° em vez de 120°
 
-  // Coreografia solicitada: abre e fecha a garra uma vez
-  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
+  moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_ABERTA, GARRA_MIN, GARRA_MAX, 10);
   delay(300);
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
-  delay(800);
+  moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_FECHADA, GARRA_MIN, GARRA_MAX, 10);
+  delay(600);
 
   posturaProntidao();
 }
 
-// ---------------- PROTOCOLO SERIAL SEM FRAGMENTAÇÃO DE HEAP ----------------
+// ---------------- PROTOCOLO SERIAL COM PROTEÇÃO DE OVERFLOW ----------------
 #define IS(s)     (strcmp_P(cmd, PSTR(s)) == 0)
 #define STARTS(s) (strncmp_P(cmd, PSTR(s), sizeof(s) - 1) == 0)
 
@@ -366,7 +388,55 @@ void processarComando(char *cmd) {
   } else if (IS("CMD:DIAG")) {
     rotinaDiagnosticoInicial();
     Serial.println(F("ACK:DIAG_DONE"));
-  } else if (IS("CMD:FACE:LISTEN")) {
+  } 
+  // --- TESTES INDIVIDUAIS POR SERVO ---
+  else if (IS("CMD:TEST:D6") || IS("CMD:TEST:BASE")) {
+    moverSuave(servoBase, PIN_BASE, posBase, 120, BASE_MIN, BASE_MAX, 15);
+    moverSuave(servoBase, PIN_BASE, posBase, 60, BASE_MIN, BASE_MAX, 15);
+    moverSuave(servoBase, PIN_BASE, posBase, BASE_CENTRO, BASE_MIN, BASE_MAX, 15);
+    Serial.println(F("ACK:TEST_BASE_DONE"));
+  } else if (IS("CMD:TEST:D3") || IS("CMD:TEST:OMBRO")) {
+    moverSuave(servoOmbro, PIN_OMBRO, posOmbro, 95, OMBRO_MIN, OMBRO_MAX, 15);
+    moverSuave(servoOmbro, PIN_OMBRO, posOmbro, 65, OMBRO_MIN, OMBRO_MAX, 15);
+    moverSuave(servoOmbro, PIN_OMBRO, posOmbro, OMBRO_PRONTIDAO, OMBRO_MIN, OMBRO_MAX, 15);
+    Serial.println(F("ACK:TEST_OMBRO_DONE"));
+  } else if (IS("CMD:TEST:D4") || IS("CMD:TEST:COTOVELO")) {
+    moverSuave(servoCotovelo, PIN_COTOVELO, posCotovelo, 65, COTOVELO_MIN, COTOVELO_MAX, 15);
+    moverSuave(servoCotovelo, PIN_COTOVELO, posCotovelo, 45, COTOVELO_MIN, COTOVELO_MAX, 15);
+    moverSuave(servoCotovelo, PIN_COTOVELO, posCotovelo, COTOVELO_PRONTIDAO, COTOVELO_MIN, COTOVELO_MAX, 15);
+    Serial.println(F("ACK:TEST_COTOVELO_DONE"));
+  } else if (IS("CMD:TEST:D5") || IS("CMD:TEST:GARRA")) {
+    moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_ABERTA, GARRA_MIN, GARRA_MAX, 12);
+    delay(400);
+    moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_FECHADA, GARRA_MIN, GARRA_MAX, 12);
+    Serial.println(F("ACK:TEST_GARRA_DONE"));
+  }
+  // --- COMANDOS DA GARRA & BASE ---
+  else if (IS("CMD:GARRA:OPEN")) {
+    moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_ABERTA, GARRA_MIN, GARRA_MAX);
+    Serial.println(F("ACK:GARRA_OPEN"));
+  } else if (IS("CMD:GARRA:CLOSE")) {
+    moverSuave(servoGarra, PIN_GARRA, posGarra, GARRA_FECHADA, GARRA_MIN, GARRA_MAX);
+    Serial.println(F("ACK:GARRA_CLOSE"));
+  } else if (STARTS("CMD:GARRA:")) {
+    int ang = atoi(cmd + 10);
+    moverSuave(servoGarra, PIN_GARRA, posGarra, ang, GARRA_MIN, GARRA_MAX);
+    Serial.print(F("ACK:GARRA_")); Serial.println(posGarra);
+  } else if (STARTS("CMD:BASE:")) {
+    int ang = atoi(cmd + 9);
+    moverSuave(servoBase, PIN_BASE, posBase, ang, BASE_MIN, BASE_MAX, 15);
+    Serial.print(F("ACK:BASE_")); Serial.println(posBase);
+  } else if (STARTS("CMD:OMBRO:")) {
+    int ang = atoi(cmd + 10);
+    moverSuave(servoOmbro, PIN_OMBRO, posOmbro, ang, OMBRO_MIN, OMBRO_MAX, 15);
+    Serial.print(F("ACK:OMBRO_")); Serial.println(posOmbro);
+  } else if (STARTS("CMD:COTOVELO:")) {
+    int ang = atoi(cmd + 13);
+    moverSuave(servoCotovelo, PIN_COTOVELO, posCotovelo, ang, COTOVELO_MIN, COTOVELO_MAX, 15);
+    Serial.print(F("ACK:COTOVELO_")); Serial.println(posCotovelo);
+  }
+  // --- FACES NO OLED ---
+  else if (IS("CMD:FACE:LISTEN")) {
     definirFace(FACE_OUVINDO);
     Serial.println(F("ACK:FACE_LISTEN"));
   } else if (IS("CMD:FACE:HAPPY")) {
@@ -381,36 +451,8 @@ void processarComando(char *cmd) {
   } else if (IS("CMD:FACE:NEUTRAL")) {
     definirFace(FACE_NEUTRO);
     Serial.println(F("ACK:FACE_NEUTRAL"));
-  } else if (IS("CMD:GARRA:OPEN")) {
-    moverSuave(servoGarra, posGarra, GARRA_ABERTA);
-    Serial.println(F("ACK:GARRA_OPEN"));
-  } else if (IS("CMD:GARRA:CLOSE")) {
-    moverSuave(servoGarra, posGarra, GARRA_FECHADA);
-    Serial.println(F("ACK:GARRA_CLOSE"));
-  } else if (STARTS("CMD:GARRA:")) {
-    int ang = constrain(atoi(cmd + 10), 0, 180);
-    moverSuave(servoGarra, posGarra, ang);
-    Serial.print(F("ACK:GARRA_")); Serial.println(ang);
-  } else if (STARTS("CMD:BASE:")) {
-    int ang = constrain(atoi(cmd + 9), 0, 180);
-    moverSuave(servoBase, posBase, ang, 15);
-    Serial.print(F("ACK:BASE_")); Serial.println(ang);
-  } else if (IS("CMD:SWEEP:BASE")) {
-    for (uint8_t k = 0; k < 2; k++) {
-      moverSuave(servoBase, posBase, 130, 15);
-      moverSuave(servoBase, posBase, 50, 15);
-    }
-    moverSuave(servoBase, posBase, 90, 15);
-    Serial.println(F("ACK:SWEEP_BASE_DONE"));
   } else if (IS("CMD:OLED:RESET") || IS("CMD:FACE:RESET")) {
     iniciarDisplay();
-
-  // Teste de acendimento (flash por 150ms para confirmar energização e comunicação)
-  u8g2.firstPage();
-  do {
-    u8g2.drawBox(0, 0, 128, 128);
-  } while (u8g2.nextPage());
-  delay(150);
     atualizarDisplay();
     Serial.println(F("ACK:OLED_RESET_DONE"));
   } else if (STARTS("CMD:PERSONA:")) {
@@ -432,18 +474,27 @@ void processarComando(char *cmd) {
 void lerSerial() {
   static char buf[40];
   static uint8_t n = 0;
+  static bool overflow = false;
+
   while (Serial.available() > 0) {
+    wdt_reset();
     char c = (char)Serial.read();
     if (c == '\n' || c == '\r') {
-      if (n > 0) {
+      if (overflow) {
+        overflow = false;
+        n = 0;
+      } else if (n > 0) {
         buf[n] = 0;
         n = 0;
         processarComando(buf);
       }
-    } else if (n < sizeof(buf) - 1) {
-      buf[n++] = c;
-    } else {
-      n = 0; // Descarta se exceder tamanho
+    } else if (!overflow) {
+      if (n < sizeof(buf) - 1) {
+        buf[n++] = c;
+      } else {
+        overflow = true; // Linha excessiva: descarta até o final
+        n = 0;
+      }
     }
   }
 }
@@ -451,7 +502,10 @@ void lerSerial() {
 // ---------------- SETUP & LOOP PRINCIPAL ----------------
 void setup() {
   Serial.begin(115200);
-  Serial.println(F("DEVICE:JARVIS_ARM:V3:ONLINE")); // Resposta instantânea de boot (evita timeout DTR)
+  Serial.println(F("DEVICE:JARVIS_ARM:V3:ONLINE")); // Resposta instantânea de boot
+
+  // Ativa Watchdog de 4 segundos
+  wdt_enable(WDTO_4S);
 
   iniciarDisplay();
 
@@ -484,9 +538,10 @@ void setup() {
 }
 
 void loop() {
+  wdt_reset();
   unsigned long agora = millis();
 
-  // 1. Proteção Térmica Total: corta PWM após inatividade
+  // 1. Proteção Térmica: corta PWM após inatividade
   if (servosEnergizados && (agora - ultimoMovimentoTs > TEMPO_DETACH_MS)) {
     desenergizarServos();
   }
