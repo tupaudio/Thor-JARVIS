@@ -40,8 +40,8 @@ U8G2_SH1107_PIMORONI_128X128_1_4W_HW_SPI u8g2(U8G2_R2, /* cs=*/ 10, /* dc=*/ 9, 
 // ==============================================================================
 // 2. PINOS DOS SERVOMOTORES
 // ==============================================================================
-const int PIN_BASE     = 2; // Giro Inferior (D2)
-const int PIN_BASE_D6  = 6; // Giro Inferior Espelhado (D6)
+const int PIN_BASE     = 6; // Giro Inferior Primario (D6)
+const int PIN_BASE_D6  = 2; // Giro Inferior Secundario (D2)
 const int PIN_OMBRO    = 3; // Ombro (D3)
 const int PIN_COTOVELO = 4; // Cotovelo (D4)
 const int PIN_GARRA    = 5; // Garra (D5)
@@ -412,6 +412,10 @@ void rotinaApontar() {
 
 void setup() {
   Serial.begin(115200);
+
+  // Garante CS (D10) em OUTPUT para Master SPI no ATmega328P
+  pinMode(10, OUTPUT);
+  digitalWrite(10, HIGH);
 
   // Pulso de Hardware Reset no D8 para inicialização limpa do controlador SH1107
   pinMode(8, OUTPUT);
