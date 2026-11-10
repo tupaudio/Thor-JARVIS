@@ -64,11 +64,16 @@ class SerialCommController:
                 todas_portas = list(serial.tools.list_ports.comports())
                 
                 # TRAVA DE SEGURANÇA CRÍTICA:
-                # A impressora (Creality Ender 3 S1 Pro, CH340) NUNCA pode receber dados do Jarvis
-                # (lixo no Marlin / reset por DTR durante a impressão). Por isso a porta da impressora
-                # (OCTOPRINT_SERIAL_PORT, padrão /dev/ttyUSB0) é sempre bloqueada. Um Arduino clone com
-                # CH340 em outro /dev/ttyUSB* só é usado se estiver EXPLICITAMENTE em ARDUINO_PORT.
-                bloqueadas = {os.path.realpath(os.getenv("OCTOPRINT_SERIAL_PORT", "/dev/ttyUSB0"))}
+                # Protege a porta serial da impressora Creality Ender 3 contra envio acidental de comandos.
+                caminho_arduino_config = os.path.realpath(self.porta_configurada) if self.porta_configurada else ""
+                porta_octo_env = os.getenv("OCTOPRINT_SERIAL_PORT", "").strip()
+                bloqueadas = set()
+                if porta_octo_env and porta_octo_env.lower() not in ("none", "", "disabled"):
+                    caminho_octo = os.path.realpath(porta_octo_env)
+                    # Só bloqueia a porta do OctoPrint para auto-varredura se ela for diferente da do Arduino
+                    if caminho_octo != caminho_arduino_config:
+                        bloqueadas.add(caminho_octo)
+
                 portas_usb_reais = []
                 for p in todas_portas:
                     dev_nome = (p.device or "").lower()
@@ -82,7 +87,7 @@ class SerialCommController:
 
                 porta_alvo = None
 
-                # 1. Porta definida no .env (ex: /dev/serial/by-path/... , /dev/ttyACM0 ou /dev/ttyUSB1)
+                # 1. Porta definida no .env (ex: /dev/ttyUSB0, /dev/ttyUSB2 ou /dev/ttyACM0)
                 if self.porta_configurada and self.porta_configurada.lower() not in ("none", "", "disabled"):
                     caminho_real = os.path.realpath(self.porta_configurada)
                     if caminho_real in bloqueadas:
