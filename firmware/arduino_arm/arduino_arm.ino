@@ -124,164 +124,196 @@ void moverSuave(Servo &servo, int &posAtual, int posAlvo, int delayMs = 12) {
 }
 
 // ==============================================================================
-// 4. DESENHO DO ROSTO ROBÓTICO EXPRESSIVO NO OLED (128x128 SH1107)
-// Estilo: Robô Social / Astro Bot / EVE / Emoji Casing
+// 4. DESENHO DO ROSTO HUMANOIDE REALISTA NO OLED (128x128 SH1107)
 // ==============================================================================
 
-void desenharCabecaRobo() {
-  // 1. Badge dinâmico no topo com nome da Persona ativa
+void desenharMolduraHUD() {
+  // Cantos cibernéticos de enquadramento estilo Iron Man HUD
+  u8g2.drawLine(2, 2, 14, 2);
+  u8g2.drawLine(2, 2, 2, 14);
+  u8g2.drawLine(113, 2, 125, 2);
+  u8g2.drawLine(125, 2, 125, 14);
+  u8g2.drawLine(2, 125, 14, 125);
+  u8g2.drawLine(2, 125, 2, 113);
+  u8g2.drawLine(113, 125, 125, 125);
+  u8g2.drawLine(125, 125, 125, 113);
+
+  // Badge cibernético com o nome da Persona ativa no topo
   u8g2.setFont(u8g2_font_5x8_tf);
   int w = u8g2.getStrWidth(nomePersona);
   int x = (128 - w) / 2;
-  u8g2.drawLine(x - 5, 2, x + w + 4, 2);
-  u8g2.drawLine(x - 5, 12, x + w + 4, 12);
-  u8g2.drawLine(x - 5, 2, x - 5, 12);
-  u8g2.drawLine(x + w + 4, 2, x + w + 4, 12);
-  u8g2.drawStr(x, 10, nomePersona);
+  u8g2.drawLine(x - 5, 3, x + w + 4, 3);
+  u8g2.drawLine(x - 5, 13, x + w + 4, 13);
+  u8g2.drawLine(x - 5, 3, x - 5, 13);
+  u8g2.drawLine(x + w + 4, 3, x + w + 4, 13);
+  u8g2.drawStr(x, 11, nomePersona);
 
-  // 2. Módulos de Áudio / Orelhas Laterais (Ear Pods em cápsula)
-  // Orelha esquerda
-  u8g2.drawRBox(6, 48, 10, 36, 4);
-  u8g2.setDrawColor(0);
-  u8g2.drawBox(9, 54, 2, 24);
-  u8g2.setDrawColor(1);
-
-  // Orelha direita
-  u8g2.drawRBox(112, 48, 10, 36, 4);
-  u8g2.setDrawColor(0);
-  u8g2.drawBox(117, 54, 2, 24);
-  u8g2.setDrawColor(1);
-
-  // 3. Capacete / Carcaça do Robô (Duplo contorno suave de domo)
-  u8g2.drawRFrame(17, 15, 94, 108, 26);
-  u8g2.drawRFrame(18, 16, 92, 106, 25);
-
-  // Sensor frontal no topo do capacete
-  u8g2.drawDisc(64, 22, 2);
+  // Indicadores de status nos cantos
+  u8g2.drawDisc(5, 5, 2);
+  u8g2.drawDisc(122, 5, 2);
 }
 
-void desenharFaceRobo(Expressao exp) {
-  desenharCabecaRobo();
+void desenharEstruturaHumanoide() {
+  // Linhas anatômicas sutis de androide (maçãs do rosto e mandíbula)
+  u8g2.drawLine(16, 70, 22, 78);
+  u8g2.drawLine(111, 70, 105, 78);
+  u8g2.drawLine(22, 78, 28, 92);
+  u8g2.drawLine(105, 78, 99, 92);
+
+  // Queixo cibernético
+  u8g2.drawLine(52, 115, 75, 115);
+  u8g2.drawLine(52, 115, 46, 109);
+  u8g2.drawLine(75, 115, 81, 109);
+
+  // Ponte do nariz e sensor nasal central
+  u8g2.drawLine(64, 60, 64, 73);
+  u8g2.drawLine(61, 76, 67, 76);
+  u8g2.drawLine(61, 76, 64, 73);
+  u8g2.drawLine(67, 76, 64, 73);
+}
+
+void desenharFaceRealista(Expressao exp) {
+  desenharMolduraHUD();
+  desenharEstruturaHumanoide();
 
   int ox = olharOffset;
 
   switch (exp) {
     case FACE_NEUTRO:
-      // Sobrancelhas sutis
-      u8g2.drawLine(34, 38, 52, 38);
-      u8g2.drawLine(76, 38, 94, 38);
+      // Sobrancelhas humanas expressivas
+      u8g2.drawLine(22, 33, 50, 31);
+      u8g2.drawLine(22, 34, 50, 32);
+      u8g2.drawLine(78, 31, 106, 33);
+      u8g2.drawLine(78, 32, 106, 34);
 
-      // Olhos grandes brilhantes em pílula com reflexo de luz
-      u8g2.drawRBox(33 + ox, 44, 18, 24, 8);
-      u8g2.drawRBox(77 + ox, 44, 18, 24, 8);
+      // Olhos amendoados com contorno arredondado
+      u8g2.drawRFrame(18, 43, 38, 22, 6);
+      u8g2.drawRFrame(72, 43, 38, 22, 6);
+      u8g2.drawPixel(56, 54);
+      u8g2.drawPixel(71, 54);
+
+      // Íris com micro-sacada e ponto de reflexo de luz duplo
+      u8g2.drawDisc(37 + ox, 54, 8);
+      u8g2.drawDisc(90 + ox, 54, 8);
       u8g2.setDrawColor(0);
-      u8g2.drawDisc(38 + ox, 49, 3);
-      u8g2.drawDisc(82 + ox, 49, 3);
-      u8g2.drawPixel(43 + ox, 58);
-      u8g2.drawPixel(87 + ox, 58);
+      u8g2.drawDisc(35 + ox, 52, 2);
+      u8g2.drawDisc(88 + ox, 52, 2);
+      u8g2.drawPixel(39 + ox, 56);
+      u8g2.drawPixel(92 + ox, 56);
       u8g2.setDrawColor(1);
 
-      // Sorriso suave e amigável
-      u8g2.drawCircle(64, 82, 15, U8G2_SEMICIRCLE_LOWER);
-      u8g2.drawCircle(64, 81, 15, U8G2_SEMICIRCLE_LOWER);
-      u8g2.drawLine(49, 85, 51, 82);
-      u8g2.drawLine(79, 85, 77, 82);
+      // Lábios humanoides com arco do cupido e comissuras
+      u8g2.drawLine(48, 96, 56, 94);
+      u8g2.drawLine(56, 94, 64, 96);
+      u8g2.drawLine(64, 96, 72, 94);
+      u8g2.drawLine(72, 94, 80, 96);
+      u8g2.drawLine(46, 97, 82, 97);
+      u8g2.drawLine(52, 101, 76, 101);
+      u8g2.drawLine(46, 97, 52, 101);
+      u8g2.drawLine(82, 97, 76, 101);
+      u8g2.drawPixel(45, 97);
+      u8g2.drawPixel(83, 97);
       break;
 
     case FACE_PISCANDO:
       // Sobrancelhas relaxadas
-      u8g2.drawLine(34, 40, 52, 40);
-      u8g2.drawLine(76, 40, 94, 40);
+      u8g2.drawLine(22, 34, 50, 33);
+      u8g2.drawLine(78, 33, 106, 34);
 
-      // Pálpebras fechadas em curvas suaves (︶ ︶)
-      u8g2.drawCircle(42, 54, 13, U8G2_SEMICIRCLE_LOWER);
-      u8g2.drawCircle(42, 53, 13, U8G2_SEMICIRCLE_LOWER);
-      u8g2.drawCircle(86, 54, 13, U8G2_SEMICIRCLE_LOWER);
-      u8g2.drawCircle(86, 53, 13, U8G2_SEMICIRCLE_LOWER);
-      u8g2.drawLine(29, 58, 33, 55);
-      u8g2.drawLine(99, 58, 95, 55);
+      // Pálpebras fechadas em curva suave
+      u8g2.drawCircle(37, 52, 16, U8G2_SEMICIRCLE_LOWER);
+      u8g2.drawCircle(90, 52, 16, U8G2_SEMICIRCLE_LOWER);
+      u8g2.drawLine(19, 57, 55, 57);
+      u8g2.drawLine(73, 57, 109, 57);
 
       // Boca serena
-      u8g2.drawRBox(54, 86, 20, 3, 1);
-      break;
-
-    case FACE_FELIZ:
-      // Olhos sorridentes em arco vibrante (^ ^)
-      u8g2.drawCircle(42, 58, 14, U8G2_SEMICIRCLE_UPPER);
-      u8g2.drawCircle(42, 57, 14, U8G2_SEMICIRCLE_UPPER);
-      u8g2.drawCircle(42, 56, 14, U8G2_SEMICIRCLE_UPPER);
-      u8g2.drawCircle(86, 58, 14, U8G2_SEMICIRCLE_UPPER);
-      u8g2.drawCircle(86, 57, 14, U8G2_SEMICIRCLE_UPPER);
-      u8g2.drawCircle(86, 56, 14, U8G2_SEMICIRCLE_UPPER);
-
-      // Bochechas brilhantes de alegria (blush pills)
-      u8g2.drawRBox(26, 68, 10, 4, 2);
-      u8g2.drawRBox(92, 68, 10, 4, 2);
-
-      // Sorriso aberto caloroso
-      u8g2.drawCircle(64, 82, 18, U8G2_SEMICIRCLE_LOWER);
-      u8g2.drawCircle(64, 81, 18, U8G2_SEMICIRCLE_LOWER);
-      u8g2.drawLine(46, 82, 82, 82);
-      u8g2.drawLine(46, 83, 82, 83);
+      u8g2.drawLine(48, 97, 80, 97);
+      u8g2.drawLine(52, 100, 76, 100);
       break;
 
     case FACE_OUVINDO:
-      // Olhos grandes totalmente circulares e alertas (O O)
-      u8g2.drawDisc(42, 54, 14);
-      u8g2.drawDisc(86, 54, 14);
+      // Sobrancelhas arqueadas com atenção viva
+      u8g2.drawLine(20, 29, 50, 31);
+      u8g2.drawLine(20, 30, 50, 32);
+      u8g2.drawLine(78, 31, 108, 29);
+      u8g2.drawLine(78, 32, 108, 30);
+
+      // Olhos alertas e abertos
+      u8g2.drawRFrame(16, 41, 42, 26, 7);
+      u8g2.drawRFrame(70, 41, 42, 26, 7);
+      u8g2.drawDisc(37, 54, 10);
+      u8g2.drawDisc(90, 54, 10);
       u8g2.setDrawColor(0);
-      u8g2.drawDisc(39, 50, 4);
-      u8g2.drawDisc(83, 50, 4);
+      u8g2.drawDisc(34, 51, 3);
+      u8g2.drawDisc(87, 51, 3);
       u8g2.setDrawColor(1);
 
-      // Boca aberta expressiva falando / ouvindo
-      u8g2.drawRBox(56, 84, 16, 14, 6);
-      u8g2.setDrawColor(0);
-      u8g2.drawRBox(58, 86, 12, 10, 4);
-      u8g2.setDrawColor(1);
+      // Equalizador de espectro de áudio holográfico na boca
+      u8g2.drawBox(40, 95, 3, 6);
+      u8g2.drawBox(47, 91, 3, 14);
+      u8g2.drawBox(54, 86, 3, 23);
+      u8g2.drawBox(61, 82, 3, 30);
+      u8g2.drawBox(68, 86, 3, 23);
+      u8g2.drawBox(75, 91, 3, 14);
+      u8g2.drawBox(82, 95, 3, 6);
+      break;
 
-      // Ondas sonoras nas orelhas
-      u8g2.drawLine(2, 60, 4, 60);
-      u8g2.drawLine(2, 72, 4, 72);
-      u8g2.drawLine(124, 60, 126, 60);
-      u8g2.drawLine(124, 72, 126, 72);
+    case FACE_FELIZ:
+      // Sobrancelhas arqueadas sorridentes
+      u8g2.drawLine(22, 33, 36, 27);
+      u8g2.drawLine(36, 27, 50, 32);
+      u8g2.drawLine(78, 32, 92, 27);
+      u8g2.drawLine(92, 27, 106, 33);
+
+      // Olhos sorridentes em arco (^)
+      u8g2.drawCircle(37, 56, 14, U8G2_SEMICIRCLE_UPPER);
+      u8g2.drawCircle(37, 55, 14, U8G2_SEMICIRCLE_UPPER);
+      u8g2.drawCircle(90, 56, 14, U8G2_SEMICIRCLE_UPPER);
+      u8g2.drawCircle(90, 55, 14, U8G2_SEMICIRCLE_UPPER);
+
+      // Sorriso humanoide caloroso com covinhas
+      u8g2.drawCircle(64, 86, 18, U8G2_SEMICIRCLE_LOWER);
+      u8g2.drawCircle(64, 85, 18, U8G2_SEMICIRCLE_LOWER);
+      u8g2.drawLine(44, 94, 47, 92);
+      u8g2.drawLine(84, 94, 81, 92);
       break;
 
     case FACE_FOCADO:
-      // VISEIRA CIBERNÉTICA SCI-FI (Estilo Daft Punk / Ciclope / Emoji da foto!)
-      u8g2.drawRBox(25, 45, 78, 22, 5);
+      // Sobrancelhas anguladas em foco analítico
+      u8g2.drawLine(22, 27, 52, 36);
+      u8g2.drawLine(22, 28, 52, 37);
+      u8g2.drawLine(76, 36, 106, 27);
+      u8g2.drawLine(76, 37, 106, 28);
+
+      // Olhos focados e atentos
+      u8g2.drawRFrame(19, 46, 36, 18, 4);
+      u8g2.drawRFrame(73, 46, 36, 18, 4);
+      u8g2.drawDisc(37, 55, 6);
+      u8g2.drawDisc(90, 55, 6);
       u8g2.setDrawColor(0);
-      u8g2.drawRBox(29, 49, 70, 14, 3);
+      u8g2.drawDisc(36, 54, 1);
+      u8g2.drawDisc(89, 54, 1);
       u8g2.setDrawColor(1);
 
-      // Barra de escaneamento ótico luminosa dentro da viseira
-      u8g2.drawBox(42 + ox * 4, 53, 26, 6);
-      u8g2.drawPixel(38 + ox * 4, 55);
-      u8g2.drawPixel(39 + ox * 4, 55);
-      u8g2.drawPixel(70 + ox * 4, 55);
-      u8g2.drawPixel(71 + ox * 4, 55);
-
-      // Boca analítica concentrada
-      u8g2.drawRBox(52, 90, 24, 4, 2);
+      // Boca concentrada
+      u8g2.drawBox(50, 96, 28, 3);
       break;
 
     case FACE_SONO:
-      // Olhos cerrados relaxados
-      u8g2.drawCircle(42, 56, 12, U8G2_SEMICIRCLE_LOWER);
-      u8g2.drawCircle(42, 55, 12, U8G2_SEMICIRCLE_LOWER);
-      u8g2.drawCircle(86, 56, 12, U8G2_SEMICIRCLE_LOWER);
-      u8g2.drawCircle(86, 55, 12, U8G2_SEMICIRCLE_LOWER);
+      // Sobrancelhas neutras baixas
+      u8g2.drawLine(24, 37, 48, 37);
+      u8g2.drawLine(80, 37, 104, 37);
 
-      // Boca serena
-      u8g2.drawBox(56, 88, 16, 2);
+      // Olhos cerrados em descanso
+      u8g2.drawCircle(37, 56, 14, U8G2_SEMICIRCLE_LOWER);
+      u8g2.drawCircle(90, 56, 14, U8G2_SEMICIRCLE_LOWER);
 
-      // Partículas flutuantes "Z z z"
-      u8g2.setFont(u8g2_font_helvB10_tr);
-      u8g2.drawStr(94, 36, "Z");
-      u8g2.setFont(u8g2_font_6x10_tf);
-      u8g2.drawStr(106, 26, "z");
+      // Boca serena e efeito 'Z z z'
+      u8g2.drawBox(54, 97, 20, 2);
       u8g2.setFont(u8g2_font_4x6_tf);
-      u8g2.drawStr(114, 18, "z");
+      u8g2.drawStr(104, 24, "Z");
+      u8g2.drawStr(110, 19, "z");
+      u8g2.drawStr(116, 14, "z");
       break;
   }
 }
@@ -289,7 +321,7 @@ void desenharFaceRobo(Expressao exp) {
 void atualizarDisplay() {
   u8g2.firstPage();
   do {
-    desenharFaceRobo(expressaoAtual);
+    desenharFaceRealista(expressaoAtual);
   } while (u8g2.nextPage());
 }
 
@@ -329,18 +361,10 @@ void posturaProntidao() {
   garantirServosAtivos();
   expressaoAtual = FACE_NEUTRO;
   atualizarDisplay();
-
-  // 1. Abre a garra primeiro
-  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
-
-  // 2. Faz o movimento do braço para a postura ereta de alerta
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
   moverSuave(servoBase, posBase, 90, 12);
   moverSuave(servoOmbro, posOmbro, 90, 12);
   moverSuave(servoCotovelo, posCotovelo, 90, 12);
-
-  // 3. Fecha a garra por último
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
-
   ultimoMovimentoTs = millis();
 }
 
@@ -348,44 +372,25 @@ void posturaDescanso() {
   garantirServosAtivos();
   expressaoAtual = FACE_SONO;
   atualizarDisplay();
-
-  // 1. Abre a garra primeiro
-  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
-
-  // 2. Faz o movimento do braço para recolhimento seguro
-  moverSuave(servoBase, posBase, 90, 12);
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
   moverSuave(servoCotovelo, posCotovelo, 45, 12);
   moverSuave(servoOmbro, posOmbro, 45, 12);
-
-  // 3. Fecha a garra por último
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+  moverSuave(servoBase, posBase, 90, 12);
   delay(150);
-
-  // 4. Proteção térmica imediata em todos os servos
-  desenergizarServos();
+  desenergizarServos(); // Proteção térmica imediata
 }
 
 void rotinaAcenar() {
   garantirServosAtivos();
   expressaoAtual = FACE_FELIZ;
   atualizarDisplay();
-
-  // 1. Ergue o braço para saudar
   moverSuave(servoOmbro, posOmbro, 80, 10);
   moverSuave(servoCotovelo, posCotovelo, 80, 10);
-
-  // 2. Aceno expressivo de um lado para o outro
   for (int j = 0; j < 3; j++) {
     moverSuave(servoBase, posBase, 120, 8);
     moverSuave(servoBase, posBase, 60, 8);
   }
   moverSuave(servoBase, posBase, 90, 8);
-
-  // 3. Abre a garra, mantém aberta por 2 segundos e depois fecha
-  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
-  delay(2000);
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
-
   posturaProntidao();
 }
 
@@ -393,18 +398,11 @@ void rotinaApontar() {
   garantirServosAtivos();
   expressaoAtual = FACE_FOCADO;
   atualizarDisplay();
-
-  // 1. Estende o braço apontando para a frente
   moverSuave(servoBase, posBase, 90, 10);
   moverSuave(servoOmbro, posOmbro, 120, 10);
   moverSuave(servoCotovelo, posCotovelo, 120, 10);
-
-  // 2. Abre e fecha a garra uma vez
-  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
-  delay(300);
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
-  delay(800);
-
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 8);
+  delay(1200);
   posturaProntidao();
 }
 
@@ -426,15 +424,23 @@ void setup() {
   u8g2.setPowerSave(0);
   u8g2.setContrast(255);
 
-  // Tela de apresentação inicial com a face do robô
-  expressaoAtual = FACE_NEUTRO;
-  atualizarDisplay();
-  delay(600);
+  // Tela de apresentação inicial
+  u8g2.firstPage();
+  do {
+    u8g2.drawFrame(0, 0, 128, 128);
+    u8g2.setFont(u8g2_font_helvB10_tr);
+    u8g2.drawStr(34, 45, "JARVIS");
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(42, 65, "ONLINE");
+    u8g2.drawDisc(64, 95, 10);
+    u8g2.drawCircle(64, 95, 14);
+  } while (u8g2.nextPage());
+  delay(800);
 
   // Executa diagnóstico dos 4 servos apenas no boot
   rotinaDiagnosticoInicial();
 
-  // Face neutra ativa (pronta e piscando autonomamente)
+  // Face neutra ativa (humanoide e pronta para piscar)
   expressaoAtual = FACE_NEUTRO;
   atualizarDisplay();
 
@@ -487,8 +493,8 @@ void loop() {
 
     if (comando == "CMD:PING" || comando == "PING") {
       Serial.println("ACK:JARVIS_ARM_PONG");
-    } else if (comando == "CMD:WHO_ARE_YOU" || comando == "CMD:IDENTIFY" || comando == "WHO_ARE_YOU") {
-      Serial.println("DEVICE:JARVIS_ARM:V3:RESOURCES[SERVOS,CLAW,OLED_EYES,GESTURES]");
+    } else if (comando == "CMD:WHO_ARE_YOU" || comando == "WHO_ARE_YOU") {
+      Serial.println("DEVICE:JARVIS_ARM:V3");
     } else if (comando == "CMD:WAVE") {
       rotinaAcenar();
       Serial.println("ACK:WAVE_DONE");
