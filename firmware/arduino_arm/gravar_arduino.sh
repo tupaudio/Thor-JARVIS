@@ -12,23 +12,42 @@ FQBN="arduino:avr:uno"
 echo "🤖 [JARVIS FIRMWARE] Iniciando preparação para gravação do Arduino..."
 
 # 1. Identificar porta USB do Arduino (protegendo a porta /dev/ttyUSB0 da Impressora 3D)
-PORTA_ARDUINO=""
-for p in /dev/ttyACM0 /dev/ttyACM1 /dev/ttyUSB1 /dev/ttyUSB2; do
-    if [ -e "$p" ]; then
-        PORTA_ARDUINO="$p"
-        break
-    fi
-done
+PORTA_ARDUINO="${1:-}"
 
 if [ -z "$PORTA_ARDUINO" ]; then
-    echo "⚠️  Nenhuma porta /dev/ttyACM* ou /dev/ttyUSB1 encontrada."
-    echo "Portas seriais atualmente conectadas no servidor:"
-    ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || echo "Nenhum dispositivo serial detectado."
+    echo "🔍 Verificando portas seriais USB conectadas ao servidor:"
+    ls -l /dev/serial/by-id/* 2>/dev/null || true
+    ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || true
     echo ""
-    read -rp "Digite o caminho da porta USB do Arduino (ex: /dev/ttyACM0): " PORTA_ARDUINO
+
+    # Lê porta configurada no .env caso válida e não seja a impressora 3D
+    ENV_FILE="${DIR_FIRMWARE}/../../brain/.env"
+    PORTA_ENV=""
+    if [ -f "$ENV_FILE" ]; then
+        PORTA_ENV=$(grep -E "^ARDUINO_PORT=" "$ENV_FILE" | cut -d'=' -f2 | tr -d ' "\r\n')
+    fi
+
+    # Candidatas USB válidas (dá preferência para /dev/ttyUSB2 ou ttyACM* caso existam)
+    CANDIDATAS=()
+    for p in /dev/ttyACM0 /dev/ttyACM1 /dev/ttyUSB2 /dev/ttyUSB1; do
+        if [ -e "$p" ]; then
+            CANDIDATAS+=("$p")
+        fi
+    done
+
+    if [ -n "$PORTA_ENV" ] && [ -e "$PORTA_ENV" ] && [ "$PORTA_ENV" != "/dev/ttyUSB0" ]; then
+        PORTA_ARDUINO="$PORTA_ENV"
+    elif [ ${#CANDIDATAS[@]} -gt 0 ]; then
+        PORTA_ARDUINO="${CANDIDATAS[0]}"
+    fi
 fi
 
-echo "✅ Porta identificada: ${PORTA_ARDUINO}"
+if [ -z "$PORTA_ARDUINO" ] || [ ! -e "$PORTA_ARDUINO" ]; then
+    echo "⚠️  Nenhuma porta serial USB identificada automaticamente."
+    read -rp "Digite o caminho da porta USB do Arduino (ex: /dev/ttyUSB2): " PORTA_ARDUINO
+fi
+
+echo "✅ Porta selecionada para gravação: ${PORTA_ARDUINO}"
 
 # Sincroniza porta identificada no brain/.env para garantir conexão serial perfeita
 ENV_FILE="${DIR_FIRMWARE}/../../brain/.env"
@@ -72,19 +91,17 @@ ${ARDUINO_CLI} compile --fqbn "${FQBN}" "${DIR_FIRMWARE}"
 echo "🚀 Gravando firmware na porta ${PORTA_ARDUINO}..."
 echo "⚠️  Nota: se houver erro de timeout, desligue a fonte externa dos servos durante o upload!"
 
-# Libera a porta serial caso o jarvis.service esteja em execução
-FOI_PARADO=0
-if command -v systemctl &>/dev/null && systemctl is-active --quiet jarvis 2>/dev/null; then
-    echo "⏸️  Pausando jarvis.service para liberar a porta USB..."
-    sudo systemctl stop jarvis 2>/dev/null || true
-    FOI_PARADO=1
-fi
+# Libera a porta USB caso o processo do Jarvis esteja em execução (sem travar por senha sudo)
+echo "⏸️  Liberando acesso à porta ${PORTA_ARDUINO}..."
+fuser -k "${PORTA_ARDUINO}" 2>/dev/null || true
+pkill -f "python.*serial_comm" 2>/dev/null || true
+pkill -f "python.*iphone_dock_server" 2>/dev/null || true
+sudo -n systemctl stop jarvis 2>/dev/null || true
+sleep 1
 
 ${ARDUINO_CLI} upload -p "${PORTA_ARDUINO}" --fqbn "${FQBN}" "${DIR_FIRMWARE}"
 
-if [ "$FOI_PARADO" -eq 1 ] || (command -v systemctl &>/dev/null && systemctl list-unit-files jarvis.service 2>/dev/null | grep -q jarvis); then
-    echo "🔄 Reiniciando jarvis.service..."
-    sudo systemctl restart jarvis 2>/dev/null || true
-fi
+echo "🔄 Reativando serviço jarvis.service se disponível..."
+sudo -n systemctl restart jarvis 2>/dev/null || true
 
 echo "🎉 [SUCESSO] Firmware do Braço e Face OLED 1.5\" gravado com sucesso no Arduino!"
