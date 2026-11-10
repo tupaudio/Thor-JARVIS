@@ -54,15 +54,26 @@ class OctoPrintService:
             return "OctoPrint não configurado no .env, senhor."
         try:
             job = self._get("/api/job")
-            printer = self._get("/api/printer")
             estado = job.get("state", "desconhecido")
             prog = job.get("progress", {}) or {}
             pct = prog.get("completion")
             restante = prog.get("printTimeLeft")
-            temps = printer.get("temperature", {})
+            arq = (job.get("job") or {}).get("file") or {}
+            nome_arq = arq.get("display") or arq.get("name") or ""
+
+            # Consulta segura de temperaturas (409 Conflict tolerado durante operações)
+            temps = {}
+            try:
+                printer = self._get("/api/printer")
+                temps = printer.get("temperature", {}) or {}
+            except Exception:
+                temps = {}
+
             bico = temps.get("tool0", {}).get("actual")
             mesa = temps.get("bed", {}).get("actual")
             partes = [f"Impressora: {estado}."]
+            if nome_arq:
+                partes.append(f"Arquivo: {nome_arq}.")
             if pct is not None:
                 partes.append(f"Progresso {pct:.0f}%.")
             if restante:

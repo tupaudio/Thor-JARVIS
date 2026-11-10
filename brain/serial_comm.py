@@ -31,6 +31,14 @@ class SerialCommController:
         self._tentou_conectar = False
         self._simulator = None
 
+        # Autoconexão em segundo plano no startup para que o Arduino esteja pronto imediatamente
+        if os.getenv("ARDUINO_ENABLED", "0") == "1" and self.porta_configurada.lower() not in ("none", "", "disabled"):
+            threading.Thread(target=self._autoconectar_inicial, name="JarvisSerialInit", daemon=True).start()
+
+    def _autoconectar_inicial(self):
+        time.sleep(1.0)
+        self.conectar()
+
     def _get_simulator(self):
         """Lazy loading do simulador para evitar import circular."""
         if self._simulator is None:
@@ -107,12 +115,30 @@ class SerialCommController:
                     return False
 
                 print(f"🔌 [SERIAL] Conectando ao Arduino na porta {porta_alvo} ({self.baudrate} baud)...")
-                self._serial = serial.Serial(porta_alvo, self.baudrate, timeout=2.0)
-                time.sleep(2.0)
+                self._serial = serial.Serial(porta_alvo, self.baudrate, timeout=1.0)
+                # O Arduino UNO reinicia via DTR ao abrir a serial. Aguarda inicialização limpa (até 3.5s).
+                t_limite = time.time() + 3.5
+                while time.time() < t_limite:
+                    if self._serial.in_waiting > 0:
+                        linha = self._serial.readline().decode("utf-8", errors="ignore").strip()
+                        if "READY" in linha or "ONLINE" in linha:
+                            break
+                    time.sleep(0.05)
                 self._serial.reset_input_buffer()
                 self.conectado = True
                 self._tentou_conectar = True
                 print(f"✅ [SERIAL] Arduino UNO conectado e sincronizado com sucesso na porta {porta_alvo}!")
+
+                # Sincroniza a persona ativa imediatamente no badge OLED
+                try:
+                    from persona_manager import persona_manager
+                    p = persona_manager.obter_persona()
+                    cmd_p = f"CMD:PERSONA:{p['nome'][:15]}\n".encode("utf-8")
+                    self._serial.write(cmd_p)
+                    self._serial.flush()
+                except Exception:
+                    pass
+
                 return True
 
             except Exception as e:
@@ -271,7 +297,7 @@ class SerialCommController:
 
     def definir_persona(self, nome: str):
         """Envia comando para o Arduino atualizar o nome da persona no topo do display OLED 1.5\"."""
-        if self.conectar():
+        if self.is_conectado() or self.conectar():
             self.enviar_comando(f"CMD:PERSONA:{nome[:15]}", aguardar_ack=False)
         sim = self._get_simulator()
         if hasattr(sim, "definir_persona"):

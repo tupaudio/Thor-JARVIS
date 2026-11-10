@@ -135,6 +135,23 @@ def _igual(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode("utf-8", "ignore"), b.encode("utf-8", "ignore"))
 
 
+def _eh_ip_privado_ou_local(ip: str) -> bool:
+    """Retorna True se o IP for loopback, rede local privada (RFC 1918) ou CGNAT/Tailscale (100.64.0.0/10)."""
+    if not ip or ip in ("127.0.0.1", "::1", "localhost"):
+        return True
+    try:
+        import ipaddress
+        addr = ipaddress.ip_address(ip)
+        if addr.is_loopback or addr.is_private or addr.is_link_local:
+            return True
+        tailscale_net = ipaddress.ip_network("100.64.0.0/10")
+        if addr in tailscale_net:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 # ----------------------------------------------------------------------------- estado
 class _Assinante:
     def __init__(self):
@@ -1115,6 +1132,23 @@ HTML_STARK_HUD = r"""<!DOCTYPE html>
   <canvas id="hiddenCanvas" width="640" height="360" style="display:none;"></canvas>
 
 <script>
+  // Injeção de credencial pré-compartilhada para autenticação fluida de chamadas REST
+  const DOCK_TOKEN = "__STARK_DOCK_TOKEN__";
+  const _origFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    if (DOCK_TOKEN && !DOCK_TOKEN.startsWith('__')) {
+      if (opts.headers instanceof Headers) {
+        if (!opts.headers.has('X-Jarvis-Token')) opts.headers.set('X-Jarvis-Token', DOCK_TOKEN);
+      } else {
+        if (!opts.headers['X-Jarvis-Token']) opts.headers['X-Jarvis-Token'] = DOCK_TOKEN;
+      }
+    }
+    opts.credentials = opts.credentials || 'same-origin';
+    return _origFetch.call(this, url, opts);
+  };
+
   // Temas de cores e Avatares SVG de Alta Definição para cada Personalidade!
   const PERSONA_THEMES = {
     JARVIS: {
@@ -1830,6 +1864,9 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
             return ""
 
     def _credencial_valida(self, permitir_query: bool = False) -> bool:
+        ip = self.client_address[0]
+        if _eh_ip_privado_ou_local(ip):
+            return True
         tok = self.headers.get("X-Jarvis-Token", "")
         auth = self.headers.get("Authorization", "")
         if not tok and auth.startswith("Bearer "):
@@ -1857,6 +1894,9 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
         return False
 
     def _origem_ok(self) -> bool:
+        ip = self.client_address[0]
+        if _eh_ip_privado_ou_local(ip):
+            return True
         origem = self.headers.get("Origin")
         if not origem:
             return True
@@ -1991,7 +2031,8 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
                     return
                 _registrar_falha(self.client_address[0])
             if self._credencial_valida():
-                self._responder(200, HTML_STARK_HUD.encode("utf-8"), "text/html; charset=utf-8")
+                html = HTML_STARK_HUD.replace("__STARK_DOCK_TOKEN__", DOCK_TOKEN)
+                self._responder(200, html.encode("utf-8"), "text/html; charset=utf-8")
             else:
                 pagina = ("<meta name=viewport content='width=device-width'><body style='background:#000;color:#0cf;"
                           "font-family:sans-serif;padding:2em'><h2>J.A.R.V.I.S.</h2><p>Acesso restrito. "
@@ -2000,8 +2041,8 @@ class StarkDockHTTPHandler(BaseHTTPRequestHandler):
             return
 
         if path.startswith("/camera/"):
-            # OctoPrint local consome via loopback sem token; acessos remotos exigem token (?token= ou cookie)
-            if self.client_address[0] not in LOOPBACK_IPS and not self._exigir_auth(permitir_query=True):
+            # Acesso liberado sem token para loopback, LAN interna e Tailscale; externos exigem token
+            if not _eh_ip_privado_ou_local(self.client_address[0]) and not self._exigir_auth(permitir_query=True):
                 return
 
             if path == "/camera/snapshot.jpg":

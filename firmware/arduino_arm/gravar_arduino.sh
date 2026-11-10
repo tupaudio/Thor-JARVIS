@@ -30,6 +30,15 @@ fi
 
 echo "✅ Porta identificada: ${PORTA_ARDUINO}"
 
+# Sincroniza porta identificada no brain/.env para garantir conexão serial perfeita
+ENV_FILE="${DIR_FIRMWARE}/../../brain/.env"
+if [ -f "$ENV_FILE" ]; then
+    if grep -q "^ARDUINO_PORT=" "$ENV_FILE"; then
+        sed -i "s|^ARDUINO_PORT=.*|ARDUINO_PORT=${PORTA_ARDUINO}|" "$ENV_FILE"
+        echo "📝 ARDUINO_PORT sincronizada no .env com: ${PORTA_ARDUINO}"
+    fi
+fi
+
 # 2. Verificar ou baixar arduino-cli localmente
 ARDUINO_CLI="arduino-cli"
 if ! command -v arduino-cli &>/dev/null; then
@@ -62,6 +71,20 @@ ${ARDUINO_CLI} compile --fqbn "${FQBN}" "${DIR_FIRMWARE}"
 # 6. Gravar (Upload) na placa
 echo "🚀 Gravando firmware na porta ${PORTA_ARDUINO}..."
 echo "⚠️  Nota: se houver erro de timeout, desligue a fonte externa dos servos durante o upload!"
+
+# Libera a porta serial caso o jarvis.service esteja em execução
+FOI_PARADO=0
+if command -v systemctl &>/dev/null && systemctl is-active --quiet jarvis 2>/dev/null; then
+    echo "⏸️  Pausando jarvis.service para liberar a porta USB..."
+    sudo systemctl stop jarvis 2>/dev/null || true
+    FOI_PARADO=1
+fi
+
 ${ARDUINO_CLI} upload -p "${PORTA_ARDUINO}" --fqbn "${FQBN}" "${DIR_FIRMWARE}"
+
+if [ "$FOI_PARADO" -eq 1 ] || (command -v systemctl &>/dev/null && systemctl list-unit-files jarvis.service 2>/dev/null | grep -q jarvis); then
+    echo "🔄 Reiniciando jarvis.service..."
+    sudo systemctl restart jarvis 2>/dev/null || true
+fi
 
 echo "🎉 [SUCESSO] Firmware do Braço e Face OLED 1.5\" gravado com sucesso no Arduino!"

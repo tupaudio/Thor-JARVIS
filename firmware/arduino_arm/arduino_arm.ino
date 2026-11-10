@@ -1,32 +1,27 @@
 /*
  * ==============================================================================
- * J.A.R.V.I.S. - Firmware Oficial: Braço Robótico 4-DOF + Rosto Robótico no OLED
+ * J.A.R.V.I.S. - Firmware Oficial: Braço Robótico 4-DOF + Rosto Robótico Realista no OLED
  * Placa: Arduino UNO R3 (ou Nano) + Sensor Shield V5.0
- * Suporta Telas: OLED 128x64 (SSD1306 / SH1106) e 128x128 (SH1107 / SSD1327)
+ * Suporta Telas: OLED 128x128 SPI (Driver SH1107 / Pimoroni layout)
  * ==============================================================================
  *
- * ESQUEMA DE LIGAÇÃO DOS PINOS (Conexões Atualizadas do Usuário):
+ * ESQUEMA DE LIGAÇÃO DOS PINOS:
  *
  * [ SERVOMOTORES SG90 DO BRAÇO 4-DOF ]:
  * - D2: Base (Giro)   - D3: Ombro   - D4: Cotovelo   - D5: Garra
- *   (D0/D1 são a Serial USB: só use-os definindo SERVOS_EM_D0_D1, perdendo o controle pelo HUD)
+ * - D6: Base Paralela Espelhada (Backup para Shield)
  *
- * [ DISPLAY OLED (SPI 7 Pinos) ]:
- * - VCC  -> 3.3V ou 5V (conforme serigrafia do módulo)
+ * [ DISPLAY OLED SH1107 1.5" SPI (7 Pinos) ]:
+ * - VCC  -> 5V (Trilha V)
  * - GND  -> GND (Trilha G)
  * - DIN  -> Pino Digital 11 (MOSI - Hardware SPI)
  * - CLK  -> Pino Digital 13 (SCK - Hardware SPI)
  * - CS   -> Pino Digital 10 (Chip Select)
  * - DC   -> Pino Digital 9  (Data / Command)
- * - RST  -> Pino Digital 8  (Reset)
+ * - RST  -> Pino Digital 8  (Hardware Reset)
  *
- * ATENÇÃO ELÉTRICA:
- * - Remova o jumper 'SEL' da Sensor Shield V5.0.
- * - Conecte fonte externa de 5V 3A nos bornes azuis para alimentar os servos!
- * - Garanta GND COMUM entre Arduino e Fonte Externa.
- *
- * BIBLIOTECA NECESSÁRIA NO ARDUINO IDE:
- * - 'U8g2' de olikraus (Instalar pelo Library Manager)
+ * ROTAÇÃO:
+ * - U8G2_R2 (180 graus): compensa a montagem invertida para saída de cabos
  */
 
 #include <Arduino.h>
@@ -38,42 +33,17 @@
 #define U8G2_SEMICIRCLE_LOWER (U8G2_DRAW_LOWER_RIGHT | U8G2_DRAW_LOWER_LEFT)
 
 // ==============================================================================
-// 1. SELEÇÃO DO MODELO E RESOLUÇÃO DO DISPLAY OLED 1.5" 128x128 SPI (SH1107)
+// 1. DISPLAY OLED 1.5" SH1107 SPI (180 graus com U8G2_R2)
 // ==============================================================================
-// O chip confirmado no verso é o SH1107 com 5V nos terminais V e G.
-// A variante SEEED é a que ativa a bomba de carga (Charge Pump) e contraste
-// nos módulos OLED 1.5" chineses GME128128 e genéricos de 7 pinos.
-
-// ==============================================================================
-// 1. PINOS E DRIVER DO DISPLAY OLED 1.5" 128x128 SPI (Driver SH1107)
-// ==============================================================================
-// Fiação Real Confirmada pelo Usuário:
-// SCL/CLK -> D13 | SDA/DIN -> D11 | CS -> D10 | DC -> D9 | RST -> D8 | VCC/GND -> D13
-//
-// Driver oficial com offset zero (PIMORONI layout para módulos 1.5" SH1107 de 7 pinos):
-// Rotação: U8G2_R2 inverte 180 graus conforme solicitado pelo usuário para acomodar os cabos.
 U8G2_SH1107_PIMORONI_128X128_1_4W_HW_SPI u8g2(U8G2_R2, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
 
 // ==============================================================================
-// 2. PINOS DOS SERVOS
+// 2. PINOS DOS SERVOMOTORES
 // ==============================================================================
-// ⚠️ D0/D1 SÃO A SERIAL USB (RX/TX) DO ARDUINO UNO. Com servos em D0/D1 o sinal PWM
-// do servo disputa a linha RX com o conversor USB: os comandos vindos do servidor/HUD
-// chegam corrompidos (ou não chegam) e o TX do Arduino faz os servos tremerem.
-// Por isso o padrão é D2/D3 + D4/D5. Só habilite D0/D1 se NÃO precisar de comandos via USB.
-//
-//   Padrão (comandos do HUD funcionam):  Base=D2  Ombro=D3  Cotovelo=D4  Garra=D5
-//   Opcional (SEM controle via USB):      Base=D0  Ombro=D1  Cotovelo=D4  Garra=D5
-// #define SERVOS_EM_D0_D1
-#ifdef SERVOS_EM_D0_D1
-const int PIN_BASE     = 0; // Giro Inferior (D0)  - conflita com USB
-const int PIN_OMBRO    = 1; // Elevação Primária (D1) - conflita com USB
-#else
 const int PIN_BASE     = 2; // Giro Inferior (D2)
-const int PIN_BASE_D6  = 6; // Giro Inferior Espelhado (D6) - caso o pino D2 da shield esteja danificado
-const int PIN_OMBRO    = 3; // Elevação Primária / Ombro (D3)
-#endif
-const int PIN_COTOVELO = 4; // Elevação Secundária / Cotovelo (D4)
+const int PIN_BASE_D6  = 6; // Giro Inferior Espelhado (D6)
+const int PIN_OMBRO    = 3; // Ombro (D3)
+const int PIN_COTOVELO = 4; // Cotovelo (D4)
 const int PIN_GARRA    = 5; // Garra (D5)
 
 Servo servoBase;
@@ -85,12 +55,15 @@ Servo servoGarra;
 int posBase     = 90;
 int posOmbro    = 90;
 int posCotovelo = 90;
-// Garra: calibrada para fechamento seguro sem travar o batente (105 graus) e abertura (30 graus)
-int GARRA_ABERTA  = 30;
-int GARRA_FECHADA = 105;
+int GARRA_ABERTA  = 25;   // Abertura ampla calibrada
+int GARRA_FECHADA = 105;  // Fechamento suave sem bater batente
 int posGarra      = 105;
 
-// Estados das Expressões Faciais do J.A.R.V.I.S.
+// Proteção Térmica Universal SG90 (Auto-detach de todos os servos)
+unsigned long ultimoMovimentoTs = 0;
+bool servosEnergizados = false;
+
+// Estados das Expressões Faciais Humanoides
 enum Expressao {
   FACE_NEUTRO,
   FACE_PISCANDO,
@@ -104,119 +77,201 @@ Expressao expressaoAtual = FACE_NEUTRO;
 unsigned long ultimoPiscar = 0;
 unsigned long tempoInicioPiscar = 0;
 bool emPiscar = false;
+int olharOffset = 0;
+unsigned long ultimoOlhar = 0;
 char nomePersona[16] = "J.A.R.V.I.S.";
 
 // ==============================================================================
-// 3. FUNÇÕES DE DESENHO DO ROSTO ROBÓTICO REALISTA (128x128 SH1107 PIMORONI)
+// 3. CONTROLE TÉRMICO E ACIONAMENTO SUAVE DOS SERVOS
+// ==============================================================================
+
+void garantirServosAtivos() {
+  if (!servoBase.attached())     servoBase.attach(PIN_BASE);
+  if (!servoBase6.attached())    servoBase6.attach(PIN_BASE_D6);
+  if (!servoOmbro.attached())    servoOmbro.attach(PIN_OMBRO);
+  if (!servoCotovelo.attached()) servoCotovelo.attach(PIN_COTOVELO);
+  if (!servoGarra.attached())    servoGarra.attach(PIN_GARRA);
+  servosEnergizados = true;
+  ultimoMovimentoTs = millis();
+}
+
+void desenergizarServos() {
+  servoBase.detach();
+  servoBase6.detach();
+  servoOmbro.detach();
+  servoCotovelo.detach();
+  servoGarra.detach();
+  servosEnergizados = false;
+}
+
+void moverSuave(Servo &servo, int &posAtual, int posAlvo, int delayMs = 12) {
+  garantirServosAtivos();
+  if (posAtual < posAlvo) {
+    for (int i = posAtual; i <= posAlvo; i++) {
+      servo.write(i);
+      if (&servo == &servoBase && servoBase6.attached()) servoBase6.write(i);
+      delay(delayMs);
+    }
+  } else {
+    for (int i = posAtual; i >= posAlvo; i--) {
+      servo.write(i);
+      if (&servo == &servoBase && servoBase6.attached()) servoBase6.write(i);
+      delay(delayMs);
+    }
+  }
+  posAtual = posAlvo;
+  ultimoMovimentoTs = millis();
+}
+
+// ==============================================================================
+// 4. DESENHO DO ROSTO HUMANOIDE REALISTA NO OLED (128x128 SH1107)
 // ==============================================================================
 
 void desenharMolduraHUD() {
-  // Cantos cibernéticos estilo Stark Tech HUD
-  u8g2.drawLine(4, 4, 16, 4);
-  u8g2.drawLine(4, 4, 4, 16);
-  u8g2.drawLine(111, 4, 123, 4);
-  u8g2.drawLine(123, 4, 123, 16);
-  u8g2.drawLine(4, 123, 16, 123);
-  u8g2.drawLine(4, 123, 4, 111);
-  u8g2.drawLine(111, 123, 123, 123);
-  u8g2.drawLine(123, 123, 123, 111);
-  
-  // Badge de identificação dinâmico no topo (centralizado)
-  u8g2.setFont(u8g2_font_4x6_tf);
+  // Cantos cibernéticos de enquadramento estilo Iron Man HUD
+  u8g2.drawLine(2, 2, 14, 2);
+  u8g2.drawLine(2, 2, 2, 14);
+  u8g2.drawLine(113, 2, 125, 2);
+  u8g2.drawLine(125, 2, 125, 14);
+  u8g2.drawLine(2, 125, 14, 125);
+  u8g2.drawLine(2, 125, 2, 113);
+  u8g2.drawLine(113, 125, 125, 125);
+  u8g2.drawLine(125, 125, 125, 113);
+
+  // Badge cibernético com o nome da Persona ativa no topo
+  u8g2.setFont(u8g2_font_5x8_tf);
   int w = u8g2.getStrWidth(nomePersona);
   int x = (128 - w) / 2;
+  u8g2.drawLine(x - 5, 3, x + w + 4, 3);
+  u8g2.drawLine(x - 5, 13, x + w + 4, 13);
+  u8g2.drawLine(x - 5, 3, x - 5, 13);
+  u8g2.drawLine(x + w + 4, 3, x + w + 4, 13);
   u8g2.drawStr(x, 11, nomePersona);
+
+  // Indicadores de status nos cantos
+  u8g2.drawDisc(5, 5, 2);
+  u8g2.drawDisc(122, 5, 2);
 }
 
-void desenharNariz() {
-  // Sensor óptico central facial
-  u8g2.drawLine(64, 69, 61, 75);
-  u8g2.drawLine(61, 75, 67, 75);
-  u8g2.drawLine(67, 75, 64, 69);
+void desenharEstruturaHumanoide() {
+  // Linhas anatômicas sutis de androide (maçãs do rosto e mandíbula)
+  u8g2.drawLine(16, 70, 22, 78);
+  u8g2.drawLine(111, 70, 105, 78);
+  u8g2.drawLine(22, 78, 28, 92);
+  u8g2.drawLine(105, 78, 99, 92);
+
+  // Queixo cibernético
+  u8g2.drawLine(52, 115, 75, 115);
+  u8g2.drawLine(52, 115, 46, 109);
+  u8g2.drawLine(75, 115, 81, 109);
+
+  // Ponte do nariz e sensor nasal central
+  u8g2.drawLine(64, 60, 64, 73);
+  u8g2.drawLine(61, 76, 67, 76);
+  u8g2.drawLine(61, 76, 64, 73);
+  u8g2.drawLine(67, 76, 64, 73);
 }
 
 void desenharFaceRealista(Expressao exp) {
   desenharMolduraHUD();
-  desenharNariz();
+  desenharEstruturaHumanoide();
+
+  int ox = olharOffset;
 
   switch (exp) {
     case FACE_NEUTRO:
-      // Sobrancelhas inteligentes
-      u8g2.drawLine(24, 34, 52, 33);
-      u8g2.drawLine(24, 35, 52, 34);
-      u8g2.drawLine(76, 33, 104, 34);
-      u8g2.drawLine(76, 34, 104, 35);
-      
-      // Contorno dos Olhos com acabamento arredondado
-      u8g2.drawRFrame(20, 43, 36, 24, 6);
-      u8g2.drawRFrame(72, 43, 36, 24, 6);
-      
-      // Íris com ponto de reflexo de luz natural
-      u8g2.drawDisc(38, 55, 8);
-      u8g2.drawDisc(90, 55, 8);
+      // Sobrancelhas humanas expressivas
+      u8g2.drawLine(22, 33, 50, 31);
+      u8g2.drawLine(22, 34, 50, 32);
+      u8g2.drawLine(78, 31, 106, 33);
+      u8g2.drawLine(78, 32, 106, 34);
+
+      // Olhos amendoados com contorno arredondado
+      u8g2.drawRFrame(18, 43, 38, 22, 6);
+      u8g2.drawRFrame(72, 43, 38, 22, 6);
+      u8g2.drawPixel(56, 54);
+      u8g2.drawPixel(71, 54);
+
+      // Íris com micro-sacada e ponto de reflexo de luz duplo
+      u8g2.drawDisc(37 + ox, 54, 8);
+      u8g2.drawDisc(90 + ox, 54, 8);
       u8g2.setDrawColor(0);
-      u8g2.drawDisc(36, 53, 2);
-      u8g2.drawDisc(88, 53, 2);
+      u8g2.drawDisc(35 + ox, 52, 2);
+      u8g2.drawDisc(88 + ox, 52, 2);
+      u8g2.drawPixel(39 + ox, 56);
+      u8g2.drawPixel(92 + ox, 56);
       u8g2.setDrawColor(1);
-      
-      // Modulador vocal cibernético (boca inteligente)
-      u8g2.drawRBox(46, 94, 36, 4, 2);
-      u8g2.drawLine(40, 96, 43, 96);
-      u8g2.drawLine(85, 96, 88, 96);
+
+      // Lábios humanoides com arco do cupido e comissuras
+      u8g2.drawLine(48, 96, 56, 94);
+      u8g2.drawLine(56, 94, 64, 96);
+      u8g2.drawLine(64, 96, 72, 94);
+      u8g2.drawLine(72, 94, 80, 96);
+      u8g2.drawLine(46, 97, 82, 97);
+      u8g2.drawLine(52, 101, 76, 101);
+      u8g2.drawLine(46, 97, 52, 101);
+      u8g2.drawLine(82, 97, 76, 101);
+      u8g2.drawPixel(45, 97);
+      u8g2.drawPixel(83, 97);
       break;
 
     case FACE_PISCANDO:
       // Sobrancelhas relaxadas
-      u8g2.drawLine(24, 35, 52, 34);
-      u8g2.drawLine(76, 34, 104, 35);
-      
-      // Pálpebras fechadas
-      u8g2.drawRBox(20, 54, 36, 4, 2);
-      u8g2.drawRBox(72, 54, 36, 4, 2);
-      
-      // Boca neutra
-      u8g2.drawRBox(46, 94, 36, 4, 2);
+      u8g2.drawLine(22, 34, 50, 33);
+      u8g2.drawLine(78, 33, 106, 34);
+
+      // Pálpebras fechadas em curva suave
+      u8g2.drawCircle(37, 52, 16, U8G2_SEMICIRCLE_LOWER);
+      u8g2.drawCircle(90, 52, 16, U8G2_SEMICIRCLE_LOWER);
+      u8g2.drawLine(19, 57, 55, 57);
+      u8g2.drawLine(73, 57, 109, 57);
+
+      // Boca serena
+      u8g2.drawLine(48, 97, 80, 97);
+      u8g2.drawLine(52, 100, 76, 100);
       break;
 
     case FACE_OUVINDO:
-      // Sobrancelhas arqueadas com atenção
-      u8g2.drawLine(24, 30, 52, 31);
-      u8g2.drawLine(76, 31, 104, 30);
-      
+      // Sobrancelhas arqueadas com atenção viva
+      u8g2.drawLine(20, 29, 50, 31);
+      u8g2.drawLine(20, 30, 50, 32);
+      u8g2.drawLine(78, 31, 108, 29);
+      u8g2.drawLine(78, 32, 108, 30);
+
       // Olhos alertas e abertos
-      u8g2.drawRFrame(18, 41, 40, 28, 7);
-      u8g2.drawRFrame(70, 41, 40, 28, 7);
-      u8g2.drawDisc(38, 55, 10);
-      u8g2.drawDisc(90, 55, 10);
+      u8g2.drawRFrame(16, 41, 42, 26, 7);
+      u8g2.drawRFrame(70, 41, 42, 26, 7);
+      u8g2.drawDisc(37, 54, 10);
+      u8g2.drawDisc(90, 54, 10);
       u8g2.setDrawColor(0);
-      u8g2.drawDisc(35, 52, 3);
-      u8g2.drawDisc(87, 52, 3);
+      u8g2.drawDisc(34, 51, 3);
+      u8g2.drawDisc(87, 51, 3);
       u8g2.setDrawColor(1);
-      
-      // Equalizador de onda de voz ativo (pulsando com a audição)
-      u8g2.drawBox(40, 94, 3, 7);
-      u8g2.drawBox(48, 90, 3, 15);
-      u8g2.drawBox(56, 85, 3, 23);
-      u8g2.drawBox(64, 82, 3, 28);
-      u8g2.drawBox(72, 85, 3, 23);
-      u8g2.drawBox(80, 90, 3, 15);
-      u8g2.drawBox(88, 94, 3, 7);
+
+      // Equalizador de espectro de áudio holográfico na boca
+      u8g2.drawBox(40, 95, 3, 6);
+      u8g2.drawBox(47, 91, 3, 14);
+      u8g2.drawBox(54, 86, 3, 23);
+      u8g2.drawBox(61, 82, 3, 30);
+      u8g2.drawBox(68, 86, 3, 23);
+      u8g2.drawBox(75, 91, 3, 14);
+      u8g2.drawBox(82, 95, 3, 6);
       break;
 
     case FACE_FELIZ:
-      // Sobrancelhas sorridentes
-      u8g2.drawLine(24, 33, 38, 27);
-      u8g2.drawLine(38, 27, 52, 32);
-      u8g2.drawLine(76, 32, 90, 27);
-      u8g2.drawLine(90, 27, 104, 33);
-      
-      // Olhos em arco expressivo sorridente (^)
-      u8g2.drawCircle(38, 56, 14, U8G2_SEMICIRCLE_UPPER);
-      u8g2.drawCircle(38, 55, 14, U8G2_SEMICIRCLE_UPPER);
+      // Sobrancelhas arqueadas sorridentes
+      u8g2.drawLine(22, 33, 36, 27);
+      u8g2.drawLine(36, 27, 50, 32);
+      u8g2.drawLine(78, 32, 92, 27);
+      u8g2.drawLine(92, 27, 106, 33);
+
+      // Olhos sorridentes em arco (^)
+      u8g2.drawCircle(37, 56, 14, U8G2_SEMICIRCLE_UPPER);
+      u8g2.drawCircle(37, 55, 14, U8G2_SEMICIRCLE_UPPER);
       u8g2.drawCircle(90, 56, 14, U8G2_SEMICIRCLE_UPPER);
       u8g2.drawCircle(90, 55, 14, U8G2_SEMICIRCLE_UPPER);
-      
-      // Sorriso suave
+
+      // Sorriso humanoide caloroso com covinhas
       u8g2.drawCircle(64, 86, 18, U8G2_SEMICIRCLE_LOWER);
       u8g2.drawCircle(64, 85, 18, U8G2_SEMICIRCLE_LOWER);
       u8g2.drawLine(44, 94, 47, 92);
@@ -225,36 +280,36 @@ void desenharFaceRealista(Expressao exp) {
 
     case FACE_FOCADO:
       // Sobrancelhas anguladas em foco analítico
-      u8g2.drawLine(24, 28, 52, 36);
-      u8g2.drawLine(24, 29, 52, 37);
-      u8g2.drawLine(76, 36, 104, 28);
-      u8g2.drawLine(76, 37, 104, 29);
-      
+      u8g2.drawLine(22, 27, 52, 36);
+      u8g2.drawLine(22, 28, 52, 37);
+      u8g2.drawLine(76, 36, 106, 27);
+      u8g2.drawLine(76, 37, 106, 28);
+
       // Olhos focados e atentos
-      u8g2.drawRFrame(22, 47, 34, 18, 4);
-      u8g2.drawRFrame(72, 47, 34, 18, 4);
-      u8g2.drawDisc(39, 56, 6);
-      u8g2.drawDisc(89, 56, 6);
+      u8g2.drawRFrame(19, 46, 36, 18, 4);
+      u8g2.drawRFrame(73, 46, 36, 18, 4);
+      u8g2.drawDisc(37, 55, 6);
+      u8g2.drawDisc(90, 55, 6);
       u8g2.setDrawColor(0);
-      u8g2.drawDisc(38, 55, 1);
-      u8g2.drawDisc(88, 55, 1);
+      u8g2.drawDisc(36, 54, 1);
+      u8g2.drawDisc(89, 54, 1);
       u8g2.setDrawColor(1);
-      
+
       // Boca concentrada
-      u8g2.drawBox(50, 95, 28, 3);
+      u8g2.drawBox(50, 96, 28, 3);
       break;
 
     case FACE_SONO:
       // Sobrancelhas neutras baixas
-      u8g2.drawLine(26, 37, 50, 37);
-      u8g2.drawLine(78, 37, 102, 37);
-      
+      u8g2.drawLine(24, 37, 48, 37);
+      u8g2.drawLine(80, 37, 104, 37);
+
       // Olhos cerrados em descanso
-      u8g2.drawCircle(38, 56, 14, U8G2_SEMICIRCLE_LOWER);
+      u8g2.drawCircle(37, 56, 14, U8G2_SEMICIRCLE_LOWER);
       u8g2.drawCircle(90, 56, 14, U8G2_SEMICIRCLE_LOWER);
-      
+
       // Boca serena e efeito 'Z z z'
-      u8g2.drawBox(54, 96, 20, 2);
+      u8g2.drawBox(54, 97, 20, 2);
       u8g2.setFont(u8g2_font_4x6_tf);
       u8g2.drawStr(104, 24, "Z");
       u8g2.drawStr(110, 19, "z");
@@ -271,63 +326,18 @@ void atualizarDisplay() {
 }
 
 // ==============================================================================
-// 4. CONTROLE SUAVE DOS SERVOMOTORES
+// 5. ROTINAS DE MOVIMENTO E DIAGNÓSTICO
 // ==============================================================================
 
-void garantirServosAtivos() {
-  if (!servoBase.attached())     servoBase.attach(PIN_BASE);
-#ifndef SERVOS_EM_D0_D1
-  if (!servoBase6.attached())    servoBase6.attach(PIN_BASE_D6);
-#endif
-  if (!servoOmbro.attached())    servoOmbro.attach(PIN_OMBRO);
-  if (!servoCotovelo.attached()) servoCotovelo.attach(PIN_COTOVELO);
-  if (!servoGarra.attached())    servoGarra.attach(PIN_GARRA);
-}
-
-void desenergizarServos() {
-  servoBase.detach();
-#ifndef SERVOS_EM_D0_D1
-  servoBase6.detach();
-#endif
-  servoOmbro.detach();
-  servoCotovelo.detach();
-  servoGarra.detach();
-}
-
-// Corta o sinal PWM da garra após movimentá-la para eliminar corrente de stall e superaquecimento
-void relaxarGarra() {
-  delay(200);
-  servoGarra.detach();
-}
-
-void moverSuave(Servo &servo, int &posAtual, int posAlvo, int delayMs = 12) {
-  if (posAtual < posAlvo) {
-    for (int i = posAtual; i <= posAlvo; i++) {
-      servo.write(i);
-      if (&servo == &servoBase && servoBase6.attached()) servoBase6.write(i);
-      delay(delayMs);
-    }
-  } else {
-    for (int i = posAtual; i >= posAlvo; i--) {
-      servo.write(i);
-      if (&servo == &servoBase && servoBase6.attached()) servoBase6.write(i);
-      delay(delayMs);
-    }
-  }
-  posAtual = posAlvo;
-}
-
-void posturaProntidao() {
+// Executada APENAS UMA VEZ no setup() ao ligar o Arduino
+void rotinaDiagnosticoInicial() {
   garantirServosAtivos();
-  expressaoAtual = FACE_NEUTRO;
-  atualizarDisplay();
 
-  // 1. Diagnóstico da Garra: abre amplamente, faz pausa visível e fecha
+  // 1. Diagnóstico da Garra: abre amplamente (25°), pausa visível (400ms) e fecha (105°)
   moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
-  delay(350); // Pausa visível com a garra totalmente aberta
+  delay(400);
   moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
   delay(150);
-  relaxarGarra(); // Corta corrente da garra: zero aquecimento!
 
   // 2. Diagnóstico da Base: varredura ampla (130 -> 50 -> 90) em D2 e D6
   moverSuave(servoBase, posBase, 130, 14);
@@ -343,53 +353,67 @@ void posturaProntidao() {
   moverSuave(servoCotovelo, posCotovelo, 110, 14);
   moverSuave(servoCotovelo, posCotovelo, 70, 14);
   moverSuave(servoCotovelo, posCotovelo, 90, 14);
+
+  ultimoMovimentoTs = millis();
+}
+
+void posturaProntidao() {
+  garantirServosAtivos();
+  expressaoAtual = FACE_NEUTRO;
+  atualizarDisplay();
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+  moverSuave(servoBase, posBase, 90, 12);
+  moverSuave(servoOmbro, posOmbro, 90, 12);
+  moverSuave(servoCotovelo, posCotovelo, 90, 12);
+  ultimoMovimentoTs = millis();
 }
 
 void posturaDescanso() {
   garantirServosAtivos();
   expressaoAtual = FACE_SONO;
   atualizarDisplay();
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA);
-  moverSuave(servoCotovelo, posCotovelo, 45);
-  moverSuave(servoOmbro, posOmbro, 45);
-  moverSuave(servoBase, posBase, 90);
-  delay(200);
-  desenergizarServos(); // Elimina jitter e resfria os SG90
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+  moverSuave(servoCotovelo, posCotovelo, 45, 12);
+  moverSuave(servoOmbro, posOmbro, 45, 12);
+  moverSuave(servoBase, posBase, 90, 12);
+  delay(150);
+  desenergizarServos(); // Proteção térmica imediata
 }
 
 void rotinaAcenar() {
   garantirServosAtivos();
   expressaoAtual = FACE_FELIZ;
   atualizarDisplay();
+  moverSuave(servoOmbro, posOmbro, 80, 10);
+  moverSuave(servoCotovelo, posCotovelo, 80, 10);
   for (int j = 0; j < 3; j++) {
-    moverSuave(servoBase, posBase, 115, 8);
-    moverSuave(servoBase, posBase, 65, 8);
+    moverSuave(servoBase, posBase, 120, 8);
+    moverSuave(servoBase, posBase, 60, 8);
   }
   moverSuave(servoBase, posBase, 90, 8);
-  expressaoAtual = FACE_NEUTRO;
-  atualizarDisplay();
+  posturaProntidao();
 }
 
 void rotinaApontar() {
   garantirServosAtivos();
   expressaoAtual = FACE_FOCADO;
   atualizarDisplay();
-  moverSuave(servoBase, posBase, 90);
-  moverSuave(servoOmbro, posOmbro, 120);
-  moverSuave(servoCotovelo, posCotovelo, 120);
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA);
+  moverSuave(servoBase, posBase, 90, 10);
+  moverSuave(servoOmbro, posOmbro, 120, 10);
+  moverSuave(servoCotovelo, posCotovelo, 120, 10);
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 8);
   delay(1200);
   posturaProntidao();
 }
 
 // ==============================================================================
-// 5. SETUP E LOOP
+// 6. SETUP E LOOP PRINCIPAL
 // ==============================================================================
 
 void setup() {
   Serial.begin(115200);
 
-  // Pulso de Reset físico no D8 para inicialização limpa do controlador SH1107
+  // Pulso de Hardware Reset no D8 para inicialização limpa do controlador SH1107
   pinMode(8, OUTPUT);
   digitalWrite(8, LOW);
   delay(25);
@@ -400,7 +424,7 @@ void setup() {
   u8g2.setPowerSave(0);
   u8g2.setContrast(255);
 
-  // Tela de diagnóstico visual ao ligar
+  // Tela de apresentação inicial
   u8g2.firstPage();
   do {
     u8g2.drawFrame(0, 0, 128, 128);
@@ -411,32 +435,57 @@ void setup() {
     u8g2.drawDisc(64, 95, 10);
     u8g2.drawCircle(64, 95, 14);
   } while (u8g2.nextPage());
-  delay(1000);
+  delay(800);
 
-  garantirServosAtivos();
-  posturaProntidao();
+  // Executa diagnóstico dos 4 servos apenas no boot
+  rotinaDiagnosticoInicial();
+
+  // Face neutra ativa (humanoide e pronta para piscar)
+  expressaoAtual = FACE_NEUTRO;
+  atualizarDisplay();
+
+  // Desenergiza os servos após o diagnóstico: proteção térmica inicial
+  desenergizarServos();
 
   Serial.println("JARVIS_ONLINE_READY");
 }
 
 void loop() {
-  // Animação autônoma de piscar os olhos a cada 3.5 a 5 segundos
   unsigned long agora = millis();
+
+  // 1. Proteção Térmica Total: se os servos ficarem 1.5s inativos, desliga o sinal PWM de todos eles
+  if (servosEnergizados && (agora - ultimoMovimentoTs > 1500)) {
+    desenergizarServos();
+  }
+
+  // 2. Animação Autônoma da Face Humanoide (Piscar + Micro-sacadas)
   if (expressaoAtual == FACE_NEUTRO) {
+    // Piscar a cada 3.8s
     if (!emPiscar && agora - ultimoPiscar > 3800) {
       emPiscar = true;
       tempoInicioPiscar = agora;
       expressaoAtual = FACE_PISCANDO;
       atualizarDisplay();
-    } else if (emPiscar && agora - tempoInicioPiscar > 160) {
+    } else if (emPiscar && agora - tempoInicioPiscar > 140) {
       emPiscar = false;
       ultimoPiscar = agora;
       expressaoAtual = FACE_NEUTRO;
       atualizarDisplay();
     }
+
+    // Micro-sacada de olhar a cada 7.5s (dá sensação de consciência observando o ambiente)
+    if (!emPiscar && agora - ultimoOlhar > 7500) {
+      ultimoOlhar = agora;
+      static int seqOlhar = 0;
+      seqOlhar = (seqOlhar + 1) % 4;
+      if (seqOlhar == 1) olharOffset = 2;
+      else if (seqOlhar == 3) olharOffset = -2;
+      else olharOffset = 0;
+      atualizarDisplay();
+    }
   }
 
-  // Leitura de comandos vindos do Python (J.A.R.V.I.S. Brain)
+  // 3. Processamento de Comandos Seriais do Python (J.A.R.V.I.S. Brain)
   if (Serial.available() > 0) {
     String comando = Serial.readStringUntil('\n');
     comando.trim();
@@ -465,21 +514,26 @@ void loop() {
       expressaoAtual = FACE_SONO;
       atualizarDisplay();
       Serial.println("ACK:FACE_SLEEP");
+    } else if (comando == "CMD:FACE:FOCUS") {
+      expressaoAtual = FACE_FOCADO;
+      atualizarDisplay();
+      Serial.println("ACK:FACE_FOCUS");
+    } else if (comando == "CMD:FACE:NEUTRAL") {
+      expressaoAtual = FACE_NEUTRO;
+      atualizarDisplay();
+      Serial.println("ACK:FACE_NEUTRAL");
     } else if (comando == "CMD:GARRA:OPEN") {
       garantirServosAtivos();
       moverSuave(servoGarra, posGarra, GARRA_ABERTA);
-      relaxarGarra();
       Serial.println("ACK:GARRA_OPEN");
     } else if (comando == "CMD:GARRA:CLOSE") {
       garantirServosAtivos();
       moverSuave(servoGarra, posGarra, GARRA_FECHADA);
-      relaxarGarra();
       Serial.println("ACK:GARRA_CLOSE");
     } else if (comando.startsWith("CMD:GARRA:")) {
       int ang = constrain(comando.substring(10).toInt(), 0, 180);
       garantirServosAtivos();
       moverSuave(servoGarra, posGarra, ang);
-      relaxarGarra();
       Serial.print("ACK:GARRA_"); Serial.println(ang);
     } else if (comando.startsWith("CMD:BASE:")) {
       int ang = constrain(comando.substring(9).toInt(), 0, 180);
@@ -513,14 +567,6 @@ void loop() {
         atualizarDisplay();
         Serial.print("ACK:PERSONA_"); Serial.println(nomePersona);
       }
-    } else if (comando == "CMD:FACE:FOCUS") {
-      expressaoAtual = FACE_FOCADO;
-      atualizarDisplay();
-      Serial.println("ACK:FACE_FOCUS");
-    } else if (comando == "CMD:FACE:NEUTRAL") {
-      expressaoAtual = FACE_NEUTRO;
-      atualizarDisplay();
-      Serial.println("ACK:FACE_NEUTRAL");
     } else {
       Serial.println("ERR:UNKNOWN_CMD");
     }

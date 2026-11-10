@@ -197,11 +197,28 @@ class TelegramBotService:
             pass
 
     def sintetizar_audio_resposta(self, texto: str) -> str:
-        """Gera áudio com Edge-TTS para envio pelo Telegram."""
+        """Gera áudio contextualizado com a Persona ativa (Edge-TTS ou R2-D2) para envio pelo Telegram."""
         import edge_tts
         import tempfile
         from voice_engine import limpar_para_fala
-        voice_name = os.getenv("JARVIS_VOICE", "pt-BR-AntonioNeural")
+        from persona_manager import persona_manager
+
+        p = persona_manager.obter_persona()
+        persona_id = p.get("id", "JARVIS")
+
+        # Caso especial R2-D2: áudio procedural autêntico de bipes e trinados FM
+        if persona_id == "R2D2":
+            audio_r2 = persona_manager.gerar_audio_r2d2(texto)
+            if audio_r2:
+                fd, caminho = tempfile.mkstemp(prefix="jarvis_tg_r2_", suffix=".wav")
+                with os.fdopen(fd, "wb") as f:
+                    f.write(audio_r2)
+                return caminho
+
+        voice_name = p.get("voz") or os.getenv("JARVIS_VOICE", "pt-BR-AntonioNeural")
+        rate = p.get("rate", "+0%")
+        pitch = p.get("pitch", "+0Hz")
+
         falavel = limpar_para_fala(texto)[:1500]
         if not falavel:
             return ""
@@ -209,14 +226,14 @@ class TelegramBotService:
         os.close(fd)
 
         async def _gerar():
-            await asyncio.wait_for(edge_tts.Communicate(falavel, voice_name).save(caminho), timeout=25)
+            await asyncio.wait_for(edge_tts.Communicate(falavel, voice_name, rate=rate, pitch=pitch).save(caminho), timeout=25)
 
         novo_loop = asyncio.new_event_loop()
         try:
             novo_loop.run_until_complete(_gerar())
             return caminho
         except Exception as e:
-            print(f"⚠️ [TELEGRAM] Falha ao sintetizar áudio: {e}")
+            print(f"⚠️ [TELEGRAM] Falha ao sintetizar áudio ({voice_name}): {e}")
             try:
                 os.unlink(caminho)
             except OSError:
@@ -390,7 +407,12 @@ class TelegramBotService:
                 if t_bed is not None:
                     linhas.append(f"• Mesa Aquecida (Ender 3): `{t_bed:.1f}°C`")
             except Exception:
-                linhas.append("• Impressora 3D: offline ou desligada")
+                try:
+                    job = octoprint_service._get("/api/job")
+                    st = job.get("state", "ocupada")
+                    linhas.append(f"• Impressora 3D: estado `{st}` (sensores ocupados no momento)")
+                except Exception:
+                    linhas.append("• Impressora 3D: offline ou desligada")
             self.enviar_mensagem("\n".join(linhas), chat_id=chat_id)
             return
 

@@ -100,14 +100,20 @@ def tool_status_impressora_3d() -> dict:
     try:
         from octoprint_service import octoprint_service
         job = octoprint_service._get("/api/job")
-        printer = octoprint_service._get("/api/printer")
         
         estado = job.get("state", "Desconhecido")
         prog = job.get("progress", {}) or {}
         arquivo = job.get("job", {}).get("file", {}) or {}
         
-        t_tool = printer.get("temperature", {}).get("tool0", {})
-        t_bed = printer.get("temperature", {}).get("bed", {})
+        # Leitura de temperatura tolerante a HTTP 409 Conflict
+        t_tool = {}
+        t_bed = {}
+        try:
+            printer = octoprint_service._get("/api/printer")
+            t_tool = printer.get("temperature", {}).get("tool0", {}) or {}
+            t_bed = printer.get("temperature", {}).get("bed", {}) or {}
+        except Exception:
+            pass
 
         return {
             "status": "online",
