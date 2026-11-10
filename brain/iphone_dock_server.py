@@ -604,10 +604,11 @@ HTML_STARK_HUD = r"""<!DOCTYPE html>
   .btn-stack {
     display: flex;
     flex-direction: column;
-    gap: 7px;
+    gap: 6px;
     flex: 1;
-    justify-content: space-between;
     min-height: 0;
+    overflow-y: auto;
+    padding-right: 2px;
   }
 
   /* BOTÕES GLASSMORFICOS HIGH-TECH */
@@ -1060,6 +1061,28 @@ HTML_STARK_HUD = r"""<!DOCTYPE html>
               <div class="ctrl-info">
                 <div class="ctrl-name">Repouso</div>
                 <div class="ctrl-state">Recolher Servos</div>
+              </div>
+            </div>
+            <div class="status-led"></div>
+          </button>
+
+          <button class="ctrl-btn" onclick="moverBraco('abrir garra')">
+            <div class="ctrl-left">
+              <div class="ctrl-icon">👐</div>
+              <div class="ctrl-info">
+                <div class="ctrl-name">Abrir Garra</div>
+                <div class="ctrl-state">Curso 60°</div>
+              </div>
+            </div>
+            <div class="status-led"></div>
+          </button>
+
+          <button class="ctrl-btn" onclick="moverBraco('fechar garra')">
+            <div class="ctrl-left">
+              <div class="ctrl-icon">✊</div>
+              <div class="ctrl-info">
+                <div class="ctrl-name">Fechar Garra</div>
+                <div class="ctrl-state">Seguro 100°</div>
               </div>
             </div>
             <div class="status-led"></div>

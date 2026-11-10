@@ -12,7 +12,7 @@
 // ---------------- CONFIGURAÇÃO DE HARDWARE ----------------
 #define USAR_SW_SPI      0      // 0 = Hardware SPI (D13 SCK, D11 MOSI - alta corrente e sincronismo), 1 = Software SPI
 #define BASE_DUPLA_D2    0      // 1 SOMENTE se houver um 2º servo físico no D2 (NUNCA ligar D2 e D6 no mesmo fio!)
-#define DIAG_NO_BOOT     0      // 0 = Boot instantâneo (evita timeout/DTR do Linux), use CMD:DIAG sob demanda
+#define DIAG_NO_BOOT     1      // 1 = Calibração e teste suave ao ligar o braço
 #define TEMPO_DETACH_MS  1500UL // Tempo de inatividade (ms) até cortar PWM (proteção térmica)
 
 #define U8G2_SEMICIRCLE_UPPER (U8G2_DRAW_UPPER_RIGHT | U8G2_DRAW_UPPER_LEFT)
@@ -20,9 +20,9 @@
 
 // Display OLED 1.5" 128x128 SPI (7 pinos: CLK=13, DIN=11, CS=10, DC=9, RST=8)
 #if USAR_SW_SPI
-U8G2_SH1107_128X128_1_4W_SW_SPI u8g2(U8G2_R2, /*clk=*/13, /*data=*/11, /*cs=*/10, /*dc=*/9, /*reset=*/8);
+U8G2_SH1107_SEEED_128X128_1_4W_SW_SPI u8g2(U8G2_R2, /*clk=*/13, /*data=*/11, /*cs=*/10, /*dc=*/9, /*reset=*/8);
 #else
-U8G2_SH1107_128X128_1_4W_HW_SPI u8g2(U8G2_R2, /*cs=*/10, /*dc=*/9, /*reset=*/8);
+U8G2_SH1107_SEEED_128X128_1_4W_HW_SPI u8g2(U8G2_R2, /*cs=*/10, /*dc=*/9, /*reset=*/8);
 #endif
 
 // ---------------- SERVOMOTORES ----------------
@@ -37,7 +37,9 @@ Servo servoBase, servoOmbro, servoCotovelo, servoGarra;
 Servo servoBase2;
 #endif
 
-int posBase = 90, posOmbro = 90, posCotovelo = 90, posGarra = 100;
+const int COTOVELO_DESCANSO  = 45;
+const int COTOVELO_PRONTIDAO = 60; // Aliviado de 90° para 60°: ereto sem forçar a articulação mecânica
+int posBase = 90, posOmbro = 90, posCotovelo = 60, posGarra = 100;
 const int GARRA_ABERTA  = 60;  // Abertura moderada visivel (40 graus de curso seguro sem stall)
 const int GARRA_FECHADA = 100; // Fechada segura sem atingir batente ou travar rotor
 
@@ -269,9 +271,9 @@ void rotinaDiagnosticoInicial() {
   moverSuave(servoOmbro, posOmbro, 70, 14);
   moverSuave(servoOmbro, posOmbro, 90, 14);
 
-  moverSuave(servoCotovelo, posCotovelo, 110, 14);
-  moverSuave(servoCotovelo, posCotovelo, 70, 14);
-  moverSuave(servoCotovelo, posCotovelo, 90, 14);
+  moverSuave(servoCotovelo, posCotovelo, 65, 14);
+  moverSuave(servoCotovelo, posCotovelo, 45, 14);
+  moverSuave(servoCotovelo, posCotovelo, COTOVELO_PRONTIDAO, 14);
   ultimoMovimentoTs = millis();
 }
 
@@ -282,7 +284,7 @@ void posturaProntidao() {
   moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
   moverSuave(servoBase, posBase, 90, 12);
   moverSuave(servoOmbro, posOmbro, 90, 12);
-  moverSuave(servoCotovelo, posCotovelo, 90, 12);
+  moverSuave(servoCotovelo, posCotovelo, COTOVELO_PRONTIDAO, 12);
   moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
   ultimoMovimentoTs = millis();
 }
@@ -304,7 +306,7 @@ void rotinaAcenar() {
   garantirServosAtivos();
   definirFace(FACE_FELIZ);
   moverSuave(servoOmbro, posOmbro, 80, 10);
-  moverSuave(servoCotovelo, posCotovelo, 80, 10);
+  moverSuave(servoCotovelo, posCotovelo, COTOVELO_PRONTIDAO, 10);
   for (uint8_t j = 0; j < 3; j++) {
     moverSuave(servoBase, posBase, 120, 8);
     moverSuave(servoBase, posBase, 60, 8);
