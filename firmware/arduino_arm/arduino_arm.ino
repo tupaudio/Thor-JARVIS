@@ -10,7 +10,7 @@
 #include <Servo.h>
 
 // ---------------- CONFIGURAÇÃO DE HARDWARE ----------------
-#define USAR_SW_SPI      1      // 1 = Software SPI (imune a conflitos SS/clock do Shield), 0 = Hardware SPI
+#define USAR_SW_SPI      0      // 0 = Hardware SPI (D13 SCK, D11 MOSI - alta corrente e sincronismo), 1 = Software SPI
 #define BASE_DUPLA_D2    0      // 1 SOMENTE se houver um 2º servo físico no D2 (NUNCA ligar D2 e D6 no mesmo fio!)
 #define DIAG_NO_BOOT     0      // 0 = Boot instantâneo (evita timeout/DTR do Linux), use CMD:DIAG sob demanda
 #define TEMPO_DETACH_MS  1500UL // Tempo de inatividade (ms) até cortar PWM (proteção térmica)
@@ -38,7 +38,7 @@ Servo servoBase2;
 #endif
 
 int posBase = 90, posOmbro = 90, posCotovelo = 90, posGarra = 100;
-const int GARRA_ABERTA  = 90;  // Quase fechada (apenas 10 graus de folga para teste sem forcar mecanica)
+const int GARRA_ABERTA  = 60;  // Abertura moderada visivel (40 graus de curso seguro sem stall)
 const int GARRA_FECHADA = 100; // Fechada segura sem atingir batente ou travar rotor
 
 unsigned long ultimoMovimentoTs = 0;
@@ -190,6 +190,12 @@ void definirFace(Expressao e) {
 }
 
 void iniciarDisplay() {
+  // Pulso de Reset no pino 8
+  pinMode(8, OUTPUT);
+  digitalWrite(8, HIGH); delay(10);
+  digitalWrite(8, LOW);  delay(50);
+  digitalWrite(8, HIGH); delay(50);
+
   pinMode(10, OUTPUT);
   digitalWrite(10, HIGH);
 #if !USAR_SW_SPI
@@ -396,6 +402,13 @@ void processarComando(char *cmd) {
     Serial.println(F("ACK:SWEEP_BASE_DONE"));
   } else if (IS("CMD:OLED:RESET") || IS("CMD:FACE:RESET")) {
     iniciarDisplay();
+
+  // Teste de acendimento (flash por 150ms para confirmar energização e comunicação)
+  u8g2.firstPage();
+  do {
+    u8g2.drawBox(0, 0, 128, 128);
+  } while (u8g2.nextPage());
+  delay(150);
     atualizarDisplay();
     Serial.println(F("ACK:OLED_RESET_DONE"));
   } else if (STARTS("CMD:PERSONA:")) {
@@ -439,6 +452,13 @@ void setup() {
   Serial.println(F("DEVICE:JARVIS_ARM:V3:ONLINE")); // Resposta instantânea de boot (evita timeout DTR)
 
   iniciarDisplay();
+
+  // Teste de acendimento (flash por 150ms para confirmar energização e comunicação)
+  u8g2.firstPage();
+  do {
+    u8g2.drawBox(0, 0, 128, 128);
+  } while (u8g2.nextPage());
+  delay(150);
 
   u8g2.firstPage();
   do {
