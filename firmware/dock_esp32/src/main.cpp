@@ -146,7 +146,7 @@ void desenharOlhoNoSprite(LGFX_Sprite &spr, float h, float w, Mood mood, bool is
 
   if (h <= 4) {
     // Olho fechado / piscada rápida (linha horizontal suave)
-    spr.fillRoundRect(8, (EY_MAX_H / 2) - 3, EYE_MAX_W - 16, 6, 3, COLOR_CYAN);
+    spr.fillRoundRect(8, (EYE_MAX_H / 2) - 3, EYE_MAX_W - 16, 6, 3, COLOR_CYAN);
     return;
   }
 
@@ -301,23 +301,23 @@ void loop() {
     lcd.printf("TOUCH: X=%d Y=%d", touchX, touchY);
   }
 
-  // 3. Processamento de Comandos Seriais do Servidor (JSON)
+  // 3. Processamento de Comandos Seriais do Servidor (JSON v7)
   if (Serial.available()) {
     String linha = Serial.readStringUntil('\n');
     linha.trim();
     if (linha.length() > 0) {
-      StaticJsonDocument<256> doc;
+      JsonDocument doc;
       DeserializationError err = deserializeJson(doc, linha);
       if (!err) {
-        if (doc.containsKey("mood")) {
-          String m = doc["mood"].as<String>();
-          if (m == "happy") currentMood = MOOD_HAPPY;
-          else if (m == "thinking") currentMood = MOOD_THINKING;
-          else if (m == "alert") currentMood = MOOD_ALERT;
-          else if (m == "sleep") currentMood = MOOD_SLEEP;
+        if (doc["mood"].is<const char*>()) {
+          const char* m = doc["mood"];
+          if (strcmp(m, "happy") == 0) currentMood = MOOD_HAPPY;
+          else if (strcmp(m, "thinking") == 0) currentMood = MOOD_THINKING;
+          else if (strcmp(m, "alert") == 0) currentMood = MOOD_ALERT;
+          else if (strcmp(m, "sleep") == 0) currentMood = MOOD_SLEEP;
           else currentMood = MOOD_NEUTRAL;
 
-          Serial.printf("{\"ack\":\"mood_updated\",\"mood\":\"%s\"}\n", m.c_str());
+          Serial.printf("{\"ack\":\"mood_updated\",\"mood\":\"%s\"}\n", m);
         }
       }
     }
