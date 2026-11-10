@@ -23,7 +23,7 @@
 // 3 = SSD1327 WAVESHARE (Muitos módulos 1.5" 128x128 vendidos como SH1107 na verdade são SSD1327)
 // 4 = SSD1327 MIDAS
 // 5 = SH1107 PIMORONI
-#define TESTE_DRIVER 1
+#define TESTE_DRIVER 3
 
 const uint8_t PIN_SCL = 8;
 const uint8_t PIN_SDA = 9;

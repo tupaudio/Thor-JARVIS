@@ -8,6 +8,12 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INO_TESTE="${DIR}/teste_oled/teste_oled.ino"
 FQBN="arduino:avr:uno"
 PORTA="${1:-/dev/ttyUSB1}"
+DRIVER="${2:-}"
+
+if [ -n "$DRIVER" ]; then
+    echo "⚙️ Configurando TESTE_DRIVER para ${DRIVER}..."
+    sed -i "s/#define TESTE_DRIVER .*/#define TESTE_DRIVER ${DRIVER}/" "${INO_TESTE}"
+fi
 
 echo "🔬 [TESTE OLED] Gravando sketch de bancada para testar o display..."
 echo "🔌 Porta alvo: ${PORTA}"
