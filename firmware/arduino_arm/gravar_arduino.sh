@@ -49,6 +49,9 @@ if [ -z "$PORTA_ARDUINO" ] || [ ! -e "$PORTA_ARDUINO" ]; then
     read -rp "Digite o caminho da porta USB do Arduino (ex: /dev/ttyUSB2): " PORTA_ARDUINO
 fi
 
+# Resolve symlink para o nó de dispositivo real se for /dev/serial/by-*
+PORTA_ARDUINO=$(readlink -f "${PORTA_ARDUINO}" 2>/dev/null || echo "${PORTA_ARDUINO}")
+
 echo "✅ Porta selecionada para gravação: ${PORTA_ARDUINO}"
 
 # Sincroniza porta identificada no brain/.env para garantir conexão serial perfeita
