@@ -23,19 +23,21 @@ if [ -z "$PORTA_ARDUINO" ]; then
     # Lê porta configurada no .env caso válida e não seja a impressora 3D
     ENV_FILE="${DIR_FIRMWARE}/../../brain/.env"
     PORTA_ENV=""
+    PORTA_OCTO=""
     if [ -f "$ENV_FILE" ]; then
         PORTA_ENV=$(grep -E "^ARDUINO_PORT=" "$ENV_FILE" | cut -d'=' -f2 | tr -d ' "\r\n')
+        PORTA_OCTO=$(grep -E "^OCTOPRINT_SERIAL_PORT=" "$ENV_FILE" | cut -d'=' -f2 | tr -d ' "\r\n')
     fi
 
-    # Candidatas USB válidas (dá preferência para /dev/ttyUSB2 ou ttyACM* caso existam)
+    # Candidatas USB válidas (excluindo a porta do OctoPrint)
     CANDIDATAS=()
-    for p in /dev/ttyACM0 /dev/ttyACM1 /dev/ttyUSB2 /dev/ttyUSB1; do
-        if [ -e "$p" ]; then
+    for p in /dev/ttyACM0 /dev/ttyACM1 /dev/ttyUSB0 /dev/ttyUSB1 /dev/ttyUSB2; do
+        if [ -e "$p" ] && [ "$p" != "$PORTA_OCTO" ]; then
             CANDIDATAS+=("$p")
         fi
     done
 
-    if [ -n "$PORTA_ENV" ] && [ -e "$PORTA_ENV" ] && [ "$PORTA_ENV" != "/dev/ttyUSB0" ]; then
+    if [ -n "$PORTA_ENV" ] && [ -e "$PORTA_ENV" ] && [ "$PORTA_ENV" != "$PORTA_OCTO" ]; then
         PORTA_ARDUINO="$PORTA_ENV"
     elif [ ${#CANDIDATAS[@]} -gt 0 ]; then
         PORTA_ARDUINO="${CANDIDATAS[0]}"

@@ -101,16 +101,20 @@ class SerialCommController:
                                 break
 
                 # 2. Linux: nós de dispositivo nativos (/dev/ttyACM*) ou portas USB não-bloqueadas (/dev/ttyUSB1, /dev/ttyUSB2...)
-                if not porta_alvo:
-                    import glob
-                    candidatas_acm = sorted(glob.glob("/dev/ttyACM*"))
-                    candidatas_usb = [p for p in sorted(glob.glob("/dev/ttyUSB*")) if os.path.realpath(p) not in bloqueadas]
-                    candidatas = candidatas_acm + candidatas_usb
-                    if candidatas:
-                        porta_alvo = candidatas[0]
+                import glob
+                candidatas_acm = sorted(glob.glob("/dev/ttyACM*"))
+                candidatas_usb = [p for p in sorted(glob.glob("/dev/ttyUSB*")) if os.path.realpath(p) not in bloqueadas]
+                candidatas = candidatas_acm + candidatas_usb
+
+                portas_para_tentar = []
+                if porta_alvo and os.path.realpath(porta_alvo) not in bloqueadas:
+                    portas_para_tentar.append(porta_alvo)
+                for c in candidatas:
+                    if c not in portas_para_tentar:
+                        portas_para_tentar.append(c)
 
                 # Se nenhuma porta USB real for encontrada
-                if not porta_alvo:
+                if not portas_para_tentar:
                     if not self._tentou_conectar:
                         portas_desc = [f"{p.device} ({p.description})" for p in todas_portas]
                         desc_str = ", ".join(portas_desc) if portas_desc else "nenhuma porta serial /dev/tty* disponível"
@@ -119,20 +123,50 @@ class SerialCommController:
                     self.conectado = False
                     return False
 
-                print(f"🔌 [SERIAL] Conectando ao Arduino na porta {porta_alvo} ({self.baudrate} baud)...")
-                self._serial = serial.Serial(porta_alvo, self.baudrate, timeout=1.0)
-                # O Arduino UNO reinicia via DTR ao abrir a serial. Aguarda inicialização limpa (até 3.5s).
-                t_limite = time.time() + 3.5
-                while time.time() < t_limite:
-                    if self._serial.in_waiting > 0:
-                        linha = self._serial.readline().decode("utf-8", errors="ignore").strip()
-                        if "READY" in linha or "ONLINE" in linha:
+                porta_conectada = None
+                for cand in portas_para_tentar:
+                    try:
+                        print(f"🔌 [SERIAL] Conectando ao Arduino na porta {cand} ({self.baudrate} baud)...")
+                        s = serial.Serial(cand, self.baudrate, timeout=1.0)
+                        # O Arduino UNO reinicia via DTR ao abrir a serial. Aguarda inicialização limpa (até 3.0s).
+                        t_limite = time.time() + 3.0
+                        conectou = False
+                        while time.time() < t_limite:
+                            if s.in_waiting > 0:
+                                linha = s.readline().decode("utf-8", errors="ignore").strip()
+                                if "READY" in linha or "ONLINE" in linha or "JARVIS" in linha:
+                                    conectou = True
+                                    break
+                            time.sleep(0.05)
+                        if not conectou:
+                            s.write(b"CMD:PING\n")
+                            s.flush()
+                            time.sleep(0.2)
+                            resp = s.read(s.in_waiting or 64).decode("utf-8", errors="ignore")
+                            if "JARVIS" in resp or "PONG" in resp:
+                                conectou = True
+
+                        if conectou:
+                            self._serial = s
+                            porta_conectada = cand
                             break
-                    time.sleep(0.05)
+                        else:
+                            s.close()
+                    except Exception as err_cand:
+                        print(f"⚠️ [SERIAL] Porta {cand} indisponível ou sem resposta: {err_cand}")
+                        continue
+
+                if not porta_conectada:
+                    print(f"⚠️ [SERIAL] Nenhuma porta USB respondeu ao handshake do Arduino. Alternando para simulador.")
+                    self.conectado = False
+                    self._tentou_conectar = True
+                    return False
+
                 self._serial.reset_input_buffer()
                 self.conectado = True
                 self._tentou_conectar = True
-                print(f"✅ [SERIAL] Arduino UNO conectado e sincronizado com sucesso na porta {porta_alvo}!")
+                self.porta_configurada = porta_conectada
+                print(f"✅ [SERIAL] Arduino UNO conectado e sincronizado com sucesso na porta {porta_conectada}!")
 
                 # Sincroniza a persona ativa imediatamente no badge OLED
                 try:

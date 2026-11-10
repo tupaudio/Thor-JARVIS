@@ -329,10 +329,18 @@ void posturaProntidao() {
   garantirServosAtivos();
   expressaoAtual = FACE_NEUTRO;
   atualizarDisplay();
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+
+  // 1. Abre a garra primeiro
+  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
+
+  // 2. Faz o movimento do braço para a postura ereta de alerta
   moverSuave(servoBase, posBase, 90, 12);
   moverSuave(servoOmbro, posOmbro, 90, 12);
   moverSuave(servoCotovelo, posCotovelo, 90, 12);
+
+  // 3. Fecha a garra por último
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+
   ultimoMovimentoTs = millis();
 }
 
@@ -340,25 +348,44 @@ void posturaDescanso() {
   garantirServosAtivos();
   expressaoAtual = FACE_SONO;
   atualizarDisplay();
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+
+  // 1. Abre a garra primeiro
+  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
+
+  // 2. Faz o movimento do braço para recolhimento seguro
+  moverSuave(servoBase, posBase, 90, 12);
   moverSuave(servoCotovelo, posCotovelo, 45, 12);
   moverSuave(servoOmbro, posOmbro, 45, 12);
-  moverSuave(servoBase, posBase, 90, 12);
+
+  // 3. Fecha a garra por último
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
   delay(150);
-  desenergizarServos(); // Proteção térmica imediata
+
+  // 4. Proteção térmica imediata em todos os servos
+  desenergizarServos();
 }
 
 void rotinaAcenar() {
   garantirServosAtivos();
   expressaoAtual = FACE_FELIZ;
   atualizarDisplay();
+
+  // 1. Ergue o braço para saudar
   moverSuave(servoOmbro, posOmbro, 80, 10);
   moverSuave(servoCotovelo, posCotovelo, 80, 10);
+
+  // 2. Aceno expressivo de um lado para o outro
   for (int j = 0; j < 3; j++) {
     moverSuave(servoBase, posBase, 120, 8);
     moverSuave(servoBase, posBase, 60, 8);
   }
   moverSuave(servoBase, posBase, 90, 8);
+
+  // 3. Abre a garra, mantém aberta por 2 segundos e depois fecha
+  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
+  delay(2000);
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+
   posturaProntidao();
 }
 
@@ -366,11 +393,18 @@ void rotinaApontar() {
   garantirServosAtivos();
   expressaoAtual = FACE_FOCADO;
   atualizarDisplay();
+
+  // 1. Estende o braço apontando para a frente
   moverSuave(servoBase, posBase, 90, 10);
   moverSuave(servoOmbro, posOmbro, 120, 10);
   moverSuave(servoCotovelo, posCotovelo, 120, 10);
-  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 8);
-  delay(1200);
+
+  // 2. Abre e fecha a garra uma vez
+  moverSuave(servoGarra, posGarra, GARRA_ABERTA, 10);
+  delay(300);
+  moverSuave(servoGarra, posGarra, GARRA_FECHADA, 10);
+  delay(800);
+
   posturaProntidao();
 }
 
@@ -450,7 +484,9 @@ void loop() {
     String comando = Serial.readStringUntil('\n');
     comando.trim();
 
-    if (comando == "CMD:WAVE") {
+    if (comando == "CMD:PING" || comando == "PING") {
+      Serial.println("ACK:JARVIS_ARM_PONG");
+    } else if (comando == "CMD:WAVE") {
       rotinaAcenar();
       Serial.println("ACK:WAVE_DONE");
     } else if (comando == "CMD:REST") {
