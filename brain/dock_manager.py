@@ -78,6 +78,11 @@ class DockManager:
             for cand in candidatas:
                 if cand and os.path.exists(cand):
                     try:
+                        if self._serial:
+                            try:
+                                self._serial.close()
+                            except Exception:
+                                pass
                         self._serial = serial.Serial(cand, self.baudrate, timeout=0.1)
                         self._serial.dtr = True  # CRUCIAL para ESP32-S3 USB CDC
                         self._serial.rts = True
@@ -206,11 +211,16 @@ class DockManager:
                             ini = linha.index("{")
                             fim = linha.rindex("}") + 1
                             self._processar_evento_dock(linha[ini:fim])
-                        except Exception:
-                            pass
-            except Exception:
+                        except Exception as e_proc:
+                            print(f"⚠️ [DOCK] Erro ao decodificar JSON: {e_proc}", flush=True)
+                    elif "TOUCH" in linha:
+                        print(f"  👆 [DOCK TOUCH RAW]: {linha}", flush=True)
+            except (serial.SerialException, OSError) as e_ser:
+                print(f"⚠️ [DOCK] Conexão serial com o Dock perdida: {e_ser}. Reconectando...", flush=True)
                 self.conectado = False
                 time.sleep(2.0)
+            except Exception:
+                time.sleep(0.01)
 
     def _loop_telemetria(self):
         """Envia dados úteis para a tarja do Dock periodicamente."""

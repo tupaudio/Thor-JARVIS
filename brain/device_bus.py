@@ -122,6 +122,23 @@ class DeviceBus:
             if ja_conhecida:
                 continue
 
+            # Se for o ESP32-S3 Dock, identifica diretamente pelo nome/ID sem abrir a serial (não interrompe o dock_manager)
+            info_porta = (porta + " " + real).lower()
+            if "espressif" in info_porta or "esp32" in info_porta or "jtag" in info_porta or "ttyacm" in info_porta:
+                with self._bus_lock:
+                    self._dispositivos["dock"] = {
+                        "tipo": "dock",
+                        "id": "ESP32_S3_DOCK",
+                        "porta": porta,
+                        "caminho_real": real,
+                        "baud": 115200,
+                        "detalhes": "ESP32-S3 Dock Touch 4.0\"",
+                        "atualizado_em": time.time()
+                    }
+                    self._portas_ocupadas.add(real)
+                    print(f"🤖 [DEVICE BUS] Dock ESP32-S3 identificado e preservado: {porta}", flush=True)
+                continue
+
             # Tenta identificar o dispositivo
             info = self._sondar_dispositivo(porta)
             if info:
