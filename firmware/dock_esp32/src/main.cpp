@@ -414,6 +414,7 @@ void loop() {
         atualizarTarjaNotificacao(notif, COLOR_YELLOW, 2500);
 
         Serial.printf("{\"type\":\"arm_cmd\",\"action\":\"%s\"}\n", botoes[i].cmd);
+        Serial.flush(); // Envia imediatamente sem reter no buffer USB CDC
       }
     }
   } else {
