@@ -194,6 +194,12 @@ class PersonaManager:
         except Exception:
             pass
 
+        try:
+            from dock_manager import dock_manager
+            dock_manager.enviar_persona(p["nome"])
+        except Exception:
+            pass
+
         return p["saudacao"]
 
     def gerar_audio_r2d2(self, texto: str = "") -> bytes:

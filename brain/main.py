@@ -98,6 +98,13 @@ def main():
 
     telegram_service.iniciar_em_segundo_plano()
     iniciar_dock_server()
+    
+    try:
+        from dock_manager import dock_manager
+        dock_manager.iniciar()
+    except Exception as e:
+        print(f"⚠️ [DOCK] Falha ao iniciar gerenciador do dock: {e}")
+
     octoprint_service.iniciar_monitoramento_telegram()
 
     hardware.atualizar_tela(titulo="JARVIS ONLINE", subtitulo="Aguardando comandos...", icone="⚡")

@@ -1,7 +1,10 @@
 /*
  * ==============================================================================
  * J.A.R.V.I.S. - Dock Terminal Inteligente 4.0" (ESP32-S3 + ILI9488 + Touch)
- * Firmware de Produção: Rosto Social Robótico + Touch Filtrado e Calibrado
+ * - Eixo X Invertido Corrigido (Acenar na Esquerda, Repouso na Direita)
+ * - Botões Táteis Oficiais: [ ACENAR ] [ APONTAR ] [ REPOUSO ]
+ * - Badge Dinâmico de Personalidade (Sincronizado com iPhone / PersonaManager)
+ * - Tarja Dinâmica de Notificações e Telemetria em Tempo Real
  * ==============================================================================
  */
 
@@ -22,7 +25,7 @@ class LGFX_JarvisDock : public lgfx::LGFX_Device {
 
 public:
   LGFX_JarvisDock() {
-    // Barramento Display (SPI2)
+    // Display SPI2
     {
       auto cfg = _bus_display.config();
       cfg.spi_host = SPI2_HOST;
@@ -53,11 +56,11 @@ public:
       _panel_instance.config(cfg);
     }
 
-    // Barramento Touch (SPI3 independente a 1.0 MHz para máxima imunidade a ruído)
+    // Touch SPI3
     {
       auto cfg = _touch_instance.config();
       cfg.spi_host = SPI3_HOST;
-      cfg.freq     = 1000000;       // 1.0 MHz: elimina instabilidade e ruídos no ADC
+      cfg.freq     = 1000000;
       cfg.pin_sclk = 6;
       cfg.pin_mosi = 7;
       cfg.pin_miso = 13;
@@ -74,7 +77,7 @@ public:
 
 LGFX_JarvisDock lcd;
 
-// Sprites de 16KB para os olhos (ultra-leves, economia total de RAM)
+// Sprites de 16KB para os olhos (ultra-leves)
 const int EYE_MAX_W = 75;
 const int EYE_MAX_H = 95;
 LGFX_Sprite eyeLeft(&lcd);
@@ -91,11 +94,12 @@ const uint16_t COLOR_BLUE_GLOW = 0x03B9;
 const uint16_t COLOR_WHITE     = 0xFFFF;
 const uint16_t COLOR_PINK_NEON = 0xF9D5;
 const uint16_t COLOR_ORANGE    = 0xFD20;
+const uint16_t COLOR_YELLOW    = 0xFFE0;
 const uint16_t COLOR_BTN_BG    = 0x0926;
 const uint16_t COLOR_BTN_ACT   = 0x04F4;
 
 // ==============================================================================
-// 3. ESTADOS FACIAIS E BOTÕES
+// 3. ESTADOS, PERSONALIDADE E NOTIFICAÇÃO
 // ==============================================================================
 enum Expressao {
   FACE_NEUTRO,
@@ -115,6 +119,15 @@ unsigned long tempoInicioPiscar = 0;
 bool emPiscar = false;
 unsigned long ultimoOlhar = 0;
 
+// Personalidade sincronizada dinamicamente
+char nomePersona[24] = "J.A.R.V.I.S.";
+
+// Tarja de Notificação Dinâmica
+char textoNotificacao[64] = "SISTEMA: ONLINE // AGUARDANDO COMANDOS";
+uint16_t corNotificacao = COLOR_CYAN;
+unsigned long tempoFimNotificacao = 0;
+
+// Botões Táteis Oficiais Solicitados
 struct Botao {
   int x, y, w, h;
   const char* label;
@@ -123,9 +136,9 @@ struct Botao {
 };
 
 Botao botoes[] = {
-  { 15,  262, 135, 48, "ACENAR",   "WAVE", false },
-  { 172, 262, 135, 48, "GARRA",    "GARRA_TOGGLE", false },
-  { 330, 262, 135, 48, "DESCANSO", "REST", false }
+  { 15,  262, 135, 48, "ACENAR",   "WAVE",  false },
+  { 172, 262, 135, 48, "APONTAR",  "POINT", false },
+  { 330, 262, 135, 48, "REPOUSO",  "REST",  false }
 };
 
 void desenharBotao(int i) {
@@ -143,15 +156,40 @@ void desenharBotao(int i) {
   lcd.print(botoes[i].label);
 }
 
+// Atualiza o Badge de Personalidade no Topo
+void desenharBadgePersona() {
+  lcd.fillRect(150, 4, 180, 20, COLOR_BG);
+  lcd.setFont(&fonts::Font0);
+  lcd.setTextColor(COLOR_CYAN, COLOR_BG);
+  
+  char badge[32];
+  snprintf(badge, sizeof(badge), "%s // CORE", nomePersona);
+  int tw = lcd.textWidth(badge);
+  int bx = (480 - (tw + 20)) / 2;
+
+  lcd.drawRoundRect(bx, 3, tw + 20, 20, 4, COLOR_BLUE_GLOW);
+  lcd.setCursor(bx + 10, 8);
+  lcd.print(badge);
+}
+
+// Atualiza a Tarja de Notificação e Telemetria
+void atualizarTarjaNotificacao(const char* msg, uint16_t cor = COLOR_CYAN, int duracaoMs = 4000) {
+  strncpy(textoNotificacao, msg, sizeof(textoNotificacao) - 1);
+  corNotificacao = cor;
+  tempoFimNotificacao = millis() + duracaoMs;
+
+  lcd.fillRect(50, 238, 380, 18, COLOR_SHELL_INT);
+  lcd.setFont(&fonts::Font0);
+  lcd.setTextColor(corNotificacao, COLOR_SHELL_INT);
+  int tw = lcd.textWidth(textoNotificacao);
+  lcd.setCursor((480 - tw) / 2, 242);
+  lcd.print(textoNotificacao);
+}
+
 void desenharMolduraCabeca() {
   lcd.fillScreen(COLOR_BG);
 
-  // Badge JARVIS no topo
-  lcd.setFont(&fonts::Font0);
-  lcd.setTextColor(COLOR_CYAN, COLOR_BG);
-  lcd.drawRoundRect(170, 4, 140, 18, 4, COLOR_BLUE_GLOW);
-  lcd.setCursor(185, 9);
-  lcd.print("J.A.R.V.I.S. // 4.0\"");
+  desenharBadgePersona();
 
   // Carcaça Externa da Cabeça do Robô
   lcd.fillRoundRect(30, 26, 420, 226, 36, COLOR_SHELL_EXT);
@@ -162,8 +200,11 @@ void desenharMolduraCabeca() {
   lcd.fillRoundRect(450, 105, 18, 70, 8, COLOR_CYAN);
 
   // Visor de Vidro Escuro
-  lcd.fillRoundRect(45, 40, 390, 198, 26, COLOR_SHELL_INT);
-  lcd.drawRoundRect(45, 40, 390, 198, 26, 0x18E3);
+  lcd.fillRoundRect(45, 38, 390, 202, 26, COLOR_SHELL_INT);
+  lcd.drawRoundRect(45, 38, 390, 202, 26, 0x18E3);
+
+  // Exibe notificação inicial
+  atualizarTarjaNotificacao(textoNotificacao, COLOR_CYAN, 3000);
 
   for (int i = 0; i < 3; i++) {
     desenharBotao(i);
@@ -216,30 +257,30 @@ void atualizarRostoExpressivo() {
 
   int posX_L = 120 + olharOffset;
   int posX_R = 285 + olharOffset;
-  int posY = 75;
+  int posY = 68;
 
   eyeLeft.pushSprite(posX_L, posY);
   eyeRight.pushSprite(posX_R, posY);
 
   // Boca dinâmica
-  lcd.fillRect(190, 175, 100, 40, COLOR_SHELL_INT);
+  lcd.fillRect(190, 168, 100, 38, COLOR_SHELL_INT);
 
   if (expressaoAtual == FACE_FELIZ) {
-    lcd.fillRoundRect(205, 178, 70, 30, 14, COLOR_CYAN);
-    lcd.fillRoundRect(210, 180, 60, 10, 5, COLOR_WHITE);
+    lcd.fillRoundRect(205, 172, 70, 30, 14, COLOR_CYAN);
+    lcd.fillRoundRect(210, 174, 60, 10, 5, COLOR_WHITE);
   } else if (expressaoAtual == FACE_OUVINDO) {
-    lcd.drawCircle(240, 192, 14, COLOR_CYAN);
-    lcd.drawCircle(240, 192, 13, COLOR_CYAN);
+    lcd.drawCircle(240, 185, 14, COLOR_CYAN);
+    lcd.drawCircle(240, 185, 13, COLOR_CYAN);
   } else if (expressaoAtual == FACE_FOCADO) {
-    lcd.drawFastHLine(215, 190, 50, COLOR_ORANGE);
-    lcd.drawFastHLine(215, 191, 50, COLOR_ORANGE);
+    lcd.drawFastHLine(215, 184, 50, COLOR_ORANGE);
+    lcd.drawFastHLine(215, 185, 50, COLOR_ORANGE);
   } else if (expressaoAtual != FACE_SONO) {
-    lcd.drawArc(240, 182, 32, 28, 20, 160, COLOR_CYAN);
+    lcd.drawArc(240, 176, 32, 28, 20, 160, COLOR_CYAN);
   }
 }
 
 // ==============================================================================
-// 4. LEITURA CALIBRADA DO TOUCH COM FILTRO DE RUÍDO
+// 4. LEITURA CALIBRADA DO TOUCH COM EIXO X INVERTIDO (DIREITA/ESQUERDA 100% OK)
 // ==============================================================================
 bool obterTouchCalibrado(int &calX, int &calY) {
   uint16_t rawX, rawY;
@@ -247,7 +288,6 @@ bool obterTouchCalibrado(int &calX, int &calY) {
     return false;
   }
 
-  // Filtro de Média Rápida para eliminar ruídos no ADC do XPT2046
   long sumX = rawX, sumY = rawY;
   int count = 1;
   for (int i = 0; i < 3; i++) {
@@ -262,12 +302,11 @@ bool obterTouchCalibrado(int &calX, int &calY) {
   rawX = sumX / count;
   rawY = sumY / count;
 
-  // Calibração Matemática Baseada nos Pontos Medidos:
-  // X medido vai de ~85 (esquerda=40) até ~470 (direita=440)
-  calX = map(rawX, 85, 470, 40, 440);
+  // CORREÇÃO CIRÚRGICA: Inverte a escala de X (440 na esquerda, 40 na direita)
+  calX = map(rawX, 85, 470, 440, 40);
   calX = constrain(calX, 0, 479);
 
-  // Y medido vai de ~20 (topo=40) até ~260 (base=280)
+  // Y permanece padrão (topo=40, base=280)
   calY = map(rawY, 20, 260, 40, 280);
   calY = constrain(calY, 0, 319);
 
@@ -289,7 +328,7 @@ void setup() {
   }
 
   Serial.println("\n==================================================");
-  Serial.println("🤖 [JARVIS DOCK] TOUCH CALIBRADO COM FILTRO DE RUIDO");
+  Serial.println("🤖 [JARVIS DOCK] SISTEMA COMPLETO: ROSTO + TOUCH + NOTIFICACOES");
   Serial.println("==================================================");
 
   pinMode(8, OUTPUT);
@@ -312,7 +351,7 @@ void setup() {
   desenharMolduraCabeca();
   atualizarRostoExpressivo();
 
-  Serial.println("✅ [SISTEMA PRONTO] Rosto e Botoes Prontos!");
+  Serial.println("✅ [SISTEMA PRONTO] Inicialização Concluída!");
 }
 
 unsigned long lastTouchTs = 0;
@@ -320,7 +359,13 @@ unsigned long lastTouchTs = 0;
 void loop() {
   unsigned long agora = millis();
 
-  // 1. Piscadas Autônomas
+  // 1. Limpa notificação expirada
+  if (tempoFimNotificacao > 0 && agora > tempoFimNotificacao) {
+    tempoFimNotificacao = 0;
+    atualizarTarjaNotificacao("SISTEMA: ONLINE // MONITORANDO BANCADA", COLOR_BLUE_GLOW, 0);
+  }
+
+  // 2. Piscadas Autônomas
   if (expressaoAtual == FACE_NEUTRO) {
     if (!emPiscar && (agora - ultimoPiscar > 3800)) {
       emPiscar = true;
@@ -349,14 +394,13 @@ void loop() {
     }
   }
 
-  // 2. Leitura Filtrada e Calibrada do Touch
+  // 3. Leitura Filtrada e Calibrada do Touch
   int tx, ty;
   if (obterTouchCalibrado(tx, ty)) {
     lastTouchTs = agora;
-    Serial.printf("🎯 [TOUCH CALIBRADO] X=%d Y=%d\n", tx, ty);
 
     for (int i = 0; i < 3; i++) {
-      bool dentro = (tx >= (botoes[i].x - 12) && tx <= (botoes[i].x + botoes[i].w + 12) &&
+      bool dentro = (tx >= (botoes[i].x - 10) && tx <= (botoes[i].x + botoes[i].w + 10) &&
                      ty >= (botoes[i].y - 15) && ty <= (botoes[i].y + botoes[i].h + 20));
 
       if (dentro && !botoes[i].pressionado) {
@@ -365,11 +409,14 @@ void loop() {
         expressaoAtual = FACE_FELIZ;
         atualizarRostoExpressivo();
 
+        char notif[48];
+        snprintf(notif, sizeof(notif), "COMANDO: %s ENVIADO!", botoes[i].label);
+        atualizarTarjaNotificacao(notif, COLOR_YELLOW, 2500);
+
         Serial.printf("{\"type\":\"arm_cmd\",\"action\":\"%s\"}\n", botoes[i].cmd);
       }
     }
   } else {
-    // Soltou o dedo
     if (agora - lastTouchTs > 150) {
       bool precisaRedesenhar = false;
       for (int i = 0; i < 3; i++) {
@@ -386,23 +433,43 @@ void loop() {
     }
   }
 
-  // 3. Comandos Seriais do Servidor
+  // 4. Comandos Seriais do Servidor (Expressões, Personalidade, Notificações e Telemetria)
   if (Serial.available()) {
     String linha = Serial.readStringUntil('\n');
     linha.trim();
     if (linha.length() > 0) {
       JsonDocument doc;
       DeserializationError err = deserializeJson(doc, linha);
-      if (!err && doc["mood"].is<const char*>()) {
-        const char* m = doc["mood"];
-        if (strcmp(m, "happy") == 0) expressaoAtual = FACE_FELIZ;
-        else if (strcmp(m, "listen") == 0) expressaoAtual = FACE_OUVINDO;
-        else if (strcmp(m, "focus") == 0) expressaoAtual = FACE_FOCADO;
-        else if (strcmp(m, "sleep") == 0) expressaoAtual = FACE_SONO;
-        else expressaoAtual = FACE_NEUTRO;
+      if (!err) {
+        // A. Atualização da Personalidade (Sincronizado com iPhone)
+        if (doc["persona"].is<const char*>() || doc["name"].is<const char*>()) {
+          const char* p = doc["persona"].is<const char*>() ? doc["persona"] : doc["name"];
+          strncpy(nomePersona, p, sizeof(nomePersona) - 1);
+          desenharBadgePersona();
 
-        atualizarRostoExpressivo();
-        Serial.printf("{\"ack\":\"face_updated\",\"mood\":\"%s\"}\n", m);
+          char notif[48];
+          snprintf(notif, sizeof(notif), "PERSONALIDADE: %s ATIVA", nomePersona);
+          atualizarTarjaNotificacao(notif, COLOR_CYAN, 3000);
+        }
+
+        // B. Notificação de Texto / Telemetria do Servidor
+        if (doc["notify"].is<const char*>() || doc["text"].is<const char*>()) {
+          const char* txt = doc["notify"].is<const char*>() ? doc["notify"] : doc["text"];
+          atualizarTarjaNotificacao(txt, COLOR_YELLOW, 4000);
+        }
+
+        // C. Mudança de Expressão Facial
+        if (doc["mood"].is<const char*>()) {
+          const char* m = doc["mood"];
+          if (strcmp(m, "happy") == 0) expressaoAtual = FACE_FELIZ;
+          else if (strcmp(m, "listen") == 0) expressaoAtual = FACE_OUVINDO;
+          else if (strcmp(m, "focus") == 0) expressaoAtual = FACE_FOCADO;
+          else if (strcmp(m, "sleep") == 0) expressaoAtual = FACE_SONO;
+          else expressaoAtual = FACE_NEUTRO;
+
+          atualizarRostoExpressivo();
+          Serial.printf("{\"ack\":\"face_updated\",\"mood\":\"%s\"}\n", m);
+        }
       }
     }
   }
