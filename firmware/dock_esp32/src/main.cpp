@@ -1,7 +1,7 @@
 /*
  * ==============================================================================
- * J.A.R.V.I.S. - Dock Terminal Inteligente 4.0" (ESP32-S3 + ILI9488)
- * Firmware de Bancada: LovyanGFX + DMA + Rosto Expressivo + USB CDC
+ * J.A.R.V.I.S. - Dock Terminal Inteligente 4.0" (ESP32-S3 + ILI9488 + Touch)
+ * Firmware de Bancada: LovyanGFX + DMA + Rosto Expressivo + Touch XPT2046
  * ==============================================================================
  */
 
@@ -10,30 +10,30 @@
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 
-// LED interno da plaquinha ESP32-S3 Super Mini (GPIO 21 na maioria das revisões)
 #define LED_BUILTIN_PIN 21
 
 // ==============================================================================
-// 1. CONFIGURAÇÃO DE HARDWARE LOVYANGFX (ESP32-S3 -> ILI9488)
+// 1. CONFIGURAÇÃO DE HARDWARE LOVYANGFX (DISPLAY + TOUCH NO MESMO SPI)
 // ==============================================================================
 class LGFX_JarvisDock : public lgfx::LGFX_Device {
   lgfx::Panel_ILI9488  _panel_instance;
   lgfx::Bus_SPI        _bus_instance;
+  lgfx::Touch_XPT2046  _touch_instance;
 
 public:
   LGFX_JarvisDock() {
-    // Barramento SPI
+    // Barramento SPI Compartilhado
     {
       auto cfg = _bus_instance.config();
       cfg.spi_host = SPI2_HOST;     // FSPI nativo
       cfg.spi_mode = 0;
-      cfg.freq_write = 15000000;    // 15 MHz para jumpers
+      cfg.freq_write = 15000000;    // 15 MHz estável
       cfg.freq_read  = 10000000;
       cfg.use_lock   = true;
       cfg.dma_channel = SPI_DMA_CH_AUTO;
-      cfg.pin_sclk = 12;            // SDK (Clock)
-      cfg.pin_mosi = 11;            // SDI (Data In / MOSI)
-      cfg.pin_miso = -1;            // SDO solto
+      cfg.pin_sclk = 12;            // SDK e TCK
+      cfg.pin_mosi = 11;            // SDI e TDI
+      cfg.pin_miso = 13;            // TDO (exclusivo do touch, SDO do LCD fica solto)
       cfg.pin_dc   = 9;             // C/D (Command / Data)
       _bus_instance.config(cfg);
       _panel_instance.setBus(&_bus_instance);
@@ -42,18 +42,37 @@ public:
     // Painel ILI9488 (480x320)
     {
       auto cfg = _panel_instance.config();
-      cfg.pin_cs   = 10;            // CD (Chip Select)
+      cfg.pin_cs   = 10;            // CD (Chip Select LCD)
       cfg.pin_rst  = 8;             // RST (Reset)
       cfg.panel_width  = 320;
       cfg.panel_height = 480;
       cfg.offset_x     = 0;
       cfg.offset_y     = 0;
-      cfg.bus_shared   = false;
+      cfg.bus_shared   = true;      // Barramento compartilhado com o touch
       cfg.readable     = false;
       cfg.invert       = false;
       cfg.rgb_order    = false;
       cfg.dlen_16bit   = false;
       _panel_instance.config(cfg);
+    }
+
+    // Controlador de Touch XPT2046
+    {
+      auto cfg = _touch_instance.config();
+      cfg.spi_host = SPI2_HOST;
+      cfg.freq     = 2500000;       // 2.5 MHz para XPT2046
+      cfg.pin_sclk = 12;            // TCK
+      cfg.pin_mosi = 11;            // TDI
+      cfg.pin_miso = 13;            // TDO
+      cfg.pin_cs   = 5;             // TCS
+      cfg.pin_int  = 4;             // PEN
+      cfg.bus_shared = true;
+      cfg.x_min    = 300;
+      cfg.x_max    = 3900;
+      cfg.y_min    = 300;
+      cfg.y_max    = 3900;
+      _touch_instance.config(cfg);
+      _panel_instance.setTouch(&_touch_instance);
     }
 
     setPanel(&_panel_instance);
@@ -62,7 +81,7 @@ public:
 
 LGFX_JarvisDock lcd;
 
-// Sprites de double-buffering DMA para animação dos olhos
+// Sprites de double-buffering DMA para os olhos
 LGFX_Sprite eyeLeft(&lcd);
 LGFX_Sprite eyeRight(&lcd);
 
@@ -98,11 +117,11 @@ unsigned long blinkStartTs = 0;
 unsigned long lastSaccadeTs = 0;
 unsigned long nextSaccadeInterval = 4000;
 
-const uint16_t COLOR_BG       = 0x0000; // Preto
-const uint16_t COLOR_CYAN     = 0x07FF; // Ciano vibrante
-const uint16_t COLOR_BLUE_GLOW= 0x03B9; // Azul de brilho
-const uint16_t COLOR_ORANGE   = 0xFD20; // Alerta
-const uint16_t COLOR_WHITE    = 0xFFFF; // Centro do olho
+const uint16_t COLOR_BG       = 0x0000;
+const uint16_t COLOR_CYAN     = 0x07FF;
+const uint16_t COLOR_BLUE_GLOW= 0x03B9;
+const uint16_t COLOR_ORANGE   = 0xFD20;
+const uint16_t COLOR_WHITE    = 0xFFFF;
 
 void desenharOlhoNoSprite(LGFX_Sprite &spr, float h, float w, Mood mood, bool isLeft) {
   spr.fillScreen(COLOR_BG);
@@ -192,16 +211,14 @@ void desenharHUD() {
   lcd.drawFastHLine(10, 305, 460, COLOR_BLUE_GLOW);
 
   lcd.setCursor(15, 308);
-  lcd.print("STATUS: ONLINE // SISTEMA ATIVO");
+  lcd.print("TOUCH: TOQUE NA TELA // SISTEMA ATIVO");
 }
 
 void setup() {
-  // Inicialização Serial USB-C
   Serial.begin(115200);
   pinMode(LED_BUILTIN_PIN, OUTPUT);
   digitalWrite(LED_BUILTIN_PIN, HIGH);
 
-  // Aguarda até 2.5s caso o monitor serial conecte
   unsigned long t0 = millis();
   while (!Serial && (millis() - t0 < 2500)) {
     digitalWrite(LED_BUILTIN_PIN, !digitalRead(LED_BUILTIN_PIN));
@@ -209,38 +226,28 @@ void setup() {
   }
 
   Serial.println("\n\n==================================================");
-  Serial.println("🤖 [JARVIS DOCK] ESP32-S3 INICIADO COM SUCESSO!");
-  Serial.println("🔌 Pinagem: CD(CS)=10, RST=8, C/D=9, SDI=11, SDK=12");
+  Serial.println("🤖 [JARVIS DOCK] ESP32-S3 + ILI9488 + TOUCH XPT2046");
+  Serial.println("🔌 Pinagem: CD=10, RST=8, C/D=9, SDI=11, SDK=12");
+  Serial.println("👆 Touch: TCK=12, TDI=11, TDO=13, TCS=5, PEN=4");
   Serial.println("==================================================");
 
   // 1. Reset elétrico físico no pino RST (GPIO 8)
-  Serial.println("1. Disparando pulso de Hardware Reset no pino 8...");
   pinMode(8, OUTPUT);
   digitalWrite(8, HIGH); delay(50);
   digitalWrite(8, LOW);  delay(100);
   digitalWrite(8, HIGH); delay(200);
 
-  // 2. Garante pino CD (CS, GPIO 10) como OUTPUT HIGH
-  pinMode(10, OUTPUT);
-  digitalWrite(10, HIGH);
+  // 2. Chip Selects em HIGH
+  pinMode(10, OUTPUT); digitalWrite(10, HIGH);
+  pinMode(5, OUTPUT);  digitalWrite(5, HIGH);
 
   // 3. Inicialização LovyanGFX
-  Serial.println("2. Executando lcd.init()...");
+  Serial.println("2. Inicializando Display e Touch...");
   lcd.init();
   lcd.setRotation(1); // Paisagem 480x320
-  Serial.println("   -> Display inicializado!");
-
-  // 4. Teste de cores de verificação (RGB)
-  Serial.println("3. Pintando tela cheia Vermelho...");
-  lcd.fillScreen(0xF800); delay(500);
-  Serial.println("3. Pintando tela cheia Verde...");
-  lcd.fillScreen(0x07E0); delay(500);
-  Serial.println("3. Pintando tela cheia Azul...");
-  lcd.fillScreen(0x001F); delay(500);
-  Serial.println("3. Pintando fundo Preto...");
   lcd.fillScreen(COLOR_BG);
 
-  // 5. Criação dos Sprites
+  // 4. Criação dos Sprites
   eyeLeft.setColorDepth(16);
   eyeLeft.createSprite(EYE_MAX_W, EYE_MAX_H);
 
@@ -248,21 +255,38 @@ void setup() {
   eyeRight.createSprite(EYE_MAX_W, EYE_MAX_H);
 
   desenharHUD();
-  Serial.println("✅ [SETUP COMPLETO] Entrando no loop principal!");
+  Serial.println("✅ [SISTEMA PRONTO] Olhos e Touch Ativos no Loop!");
 }
 
 unsigned long lastLog = 0;
 bool ledState = false;
 
 void loop() {
+  // 1. Renderiza olhos expressivos
   atualizarAnimacaoOlhos();
 
+  // 2. Leitura do Touch XPT2046
+  uint16_t touchX, touchY;
+  if (lcd.getTouch(&touchX, &touchY)) {
+    // Desenha cursor de feedback onde tocou
+    lcd.fillCircle(touchX, touchY, 6, COLOR_WHITE);
+    lcd.drawCircle(touchX, touchY, 14, COLOR_CYAN);
+
+    // Atualiza barra inferior
+    lcd.fillRect(15, 308, 300, 10, COLOR_BG);
+    lcd.setCursor(15, 308);
+    lcd.printf("TOUCH: X=%d Y=%d", touchX, touchY);
+
+    // Envia evento via serial para o servidor
+    Serial.printf("{\"type\":\"touch\",\"x\":%d,\"y\":%d}\n", touchX, touchY);
+  }
+
+  // 3. Heartbeat e Comandos Seriais
   unsigned long now = millis();
-  if (now - lastLog > 2000) {
+  if (now - lastLog > 3000) {
     lastLog = now;
     ledState = !ledState;
     digitalWrite(LED_BUILTIN_PIN, ledState);
-    Serial.printf("⏱️ [HEARTBEAT] ESP32 Rodando! millis: %lu\n", now);
   }
 
   if (Serial.available()) {
