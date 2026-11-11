@@ -1,18 +1,20 @@
 /*
  * ==============================================================================
- * J.A.R.V.I.S. - Calibrador de Touch Screen XPT2046 + Eixo Cartesiano (4.0" 480x320)
- * 1. Guia o toque em 4 cruzes nos cantos (Calibração Geométrica LovyanGFX)
- * 2. Imprime a matriz de calibração no Serial USB
- * 3. Abre tela de Eixo Cartesiano com régua e desenho de rastro para testes precisos
+ * J.A.R.V.I.S. - Dock Terminal Inteligente 4.0" (ESP32-S3 + ILI9488 + Touch)
+ * Firmware de Produção: Rosto Social Robótico + Touch Filtrado e Calibrado
  * ==============================================================================
  */
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 
 #define LED_BUILTIN_PIN 21
 
+// ==============================================================================
+// 1. CONFIGURAÇÃO LOVYANGFX
+// ==============================================================================
 class LGFX_JarvisDock : public lgfx::LGFX_Device {
   lgfx::Panel_ILI9488  _panel_instance;
   lgfx::Bus_SPI        _bus_display;
@@ -51,11 +53,11 @@ public:
       _panel_instance.config(cfg);
     }
 
-    // Barramento Touch (SPI3 independente)
+    // Barramento Touch (SPI3 independente a 1.0 MHz para máxima imunidade a ruído)
     {
       auto cfg = _touch_instance.config();
       cfg.spi_host = SPI3_HOST;
-      cfg.freq     = 2500000;
+      cfg.freq     = 1000000;       // 1.0 MHz: elimina instabilidade e ruídos no ADC
       cfg.pin_sclk = 6;
       cfg.pin_mosi = 7;
       cfg.pin_miso = 13;
@@ -72,80 +74,209 @@ public:
 
 LGFX_JarvisDock lcd;
 
-uint16_t calData[8];
-bool calibrado = false;
+// Sprites de 16KB para os olhos (ultra-leves, economia total de RAM)
+const int EYE_MAX_W = 75;
+const int EYE_MAX_H = 95;
+LGFX_Sprite eyeLeft(&lcd);
+LGFX_Sprite eyeRight(&lcd);
 
-// Desenha a malha quadriculada do eixo cartesiano
-void desenharEixoCartesiano() {
-  lcd.fillScreen(TFT_BLACK);
+// ==============================================================================
+// 2. PALETA DE CORES CYBERPUNK
+// ==============================================================================
+const uint16_t COLOR_BG        = 0x0000;
+const uint16_t COLOR_SHELL_EXT = 0x2124;
+const uint16_t COLOR_SHELL_INT = 0x0841;
+const uint16_t COLOR_CYAN      = 0x07FF;
+const uint16_t COLOR_BLUE_GLOW = 0x03B9;
+const uint16_t COLOR_WHITE     = 0xFFFF;
+const uint16_t COLOR_PINK_NEON = 0xF9D5;
+const uint16_t COLOR_ORANGE    = 0xFD20;
+const uint16_t COLOR_BTN_BG    = 0x0926;
+const uint16_t COLOR_BTN_ACT   = 0x04F4;
 
-  // Grade secundária a cada 20 pixels
-  for (int x = 0; x < 480; x += 20) {
-    lcd.drawFastVLine(x, 0, 320, 0x18C3); // Cinza muito escuro
-  }
-  for (int y = 0; y < 320; y += 20) {
-    lcd.drawFastHLine(0, y, 480, 0x18C3);
-  }
+// ==============================================================================
+// 3. ESTADOS FACIAIS E BOTÕES
+// ==============================================================================
+enum Expressao {
+  FACE_NEUTRO,
+  FACE_PISCANDO,
+  FACE_OUVINDO,
+  FACE_FELIZ,
+  FACE_FOCADO,
+  FACE_SONO
+};
 
-  // Grade principal a cada 100 pixels
-  for (int x = 0; x < 480; x += 100) {
-    lcd.drawFastVLine(x, 0, 320, 0x39E7); // Cinza médio
-  }
-  for (int y = 0; y < 320; y += 100) {
-    lcd.drawFastHLine(0, y, 480, 0x39E7);
-  }
+Expressao expressaoAtual = FACE_NEUTRO;
+int olharOffset = 0;
+int olharTarget = 0;
 
-  // Eixos centrais cartesianos principais (X=240, Y=160)
-  lcd.drawFastVLine(240, 0, 320, TFT_RED);
-  lcd.drawFastHLine(0, 160, 480, TFT_BLUE);
+unsigned long ultimoPiscar = 0;
+unsigned long tempoInicioPiscar = 0;
+bool emPiscar = false;
+unsigned long ultimoOlhar = 0;
 
-  // Pontos de Referência Notáveis com mira:
-  // Centro (240, 160)
-  lcd.drawCircle(240, 160, 10, TFT_YELLOW);
-  lcd.drawCircle(240, 160, 20, TFT_YELLOW);
-  lcd.setTextColor(TFT_YELLOW, TFT_BLACK);
-  lcd.setCursor(248, 165);
-  lcd.print("C (240,160)");
+struct Botao {
+  int x, y, w, h;
+  const char* label;
+  const char* cmd;
+  bool pressionado;
+};
 
-  // Ponto A: Top-Left (40, 40)
-  lcd.drawCircle(40, 40, 8, TFT_GREEN);
-  lcd.drawCircle(40, 40, 16, TFT_GREEN);
-  lcd.setTextColor(TFT_GREEN, TFT_BLACK);
-  lcd.setCursor(48, 45);
-  lcd.print("A (40,40)");
+Botao botoes[] = {
+  { 15,  262, 135, 48, "ACENAR",   "WAVE", false },
+  { 172, 262, 135, 48, "GARRA",    "GARRA_TOGGLE", false },
+  { 330, 262, 135, 48, "DESCANSO", "REST", false }
+};
 
-  // Ponto B: Top-Right (440, 40)
-  lcd.drawCircle(440, 40, 8, TFT_GREEN);
-  lcd.drawCircle(440, 40, 16, TFT_GREEN);
-  lcd.setCursor(360, 45);
-  lcd.print("B (440,40)");
+void desenharBotao(int i) {
+  uint16_t bg = botoes[i].pressionado ? COLOR_BTN_ACT : COLOR_BTN_BG;
+  uint16_t borda = botoes[i].pressionado ? COLOR_WHITE : COLOR_CYAN;
+  uint16_t txt = botoes[i].pressionado ? COLOR_BG : COLOR_WHITE;
 
-  // Ponto C: Bottom-Right (440, 280)
-  lcd.drawCircle(440, 280, 8, TFT_GREEN);
-  lcd.drawCircle(440, 280, 16, TFT_GREEN);
-  lcd.setCursor(340, 260);
-  lcd.print("C (440,280)");
+  lcd.fillRoundRect(botoes[i].x, botoes[i].y, botoes[i].w, botoes[i].h, 8, bg);
+  lcd.drawRoundRect(botoes[i].x, botoes[i].y, botoes[i].w, botoes[i].h, 8, borda);
 
-  // Ponto D: Bottom-Left (40, 280)
-  lcd.drawCircle(40, 280, 8, TFT_GREEN);
-  lcd.drawCircle(40, 280, 16, TFT_GREEN);
-  lcd.setCursor(48, 260);
-  lcd.print("D (40,280)");
-
-  // Botão Limpar Tela no topo centro
-  lcd.fillRoundRect(190, 4, 100, 24, 4, 0x4208);
-  lcd.drawRoundRect(190, 4, 100, 24, 4, TFT_WHITE);
-  lcd.setTextColor(TFT_WHITE, 0x4208);
-  lcd.setCursor(205, 10);
-  lcd.print("LIMPAR");
-
-  // Barra de Status Superior
-  lcd.fillRect(10, 4, 160, 20, TFT_BLACK);
-  lcd.setTextColor(TFT_CYAN, TFT_BLACK);
-  lcd.setCursor(10, 8);
-  lcd.print("EIXO CARTESIANO 480x320");
+  lcd.setFont(&fonts::Font2);
+  lcd.setTextColor(txt, bg);
+  int tw = lcd.textWidth(botoes[i].label);
+  lcd.setCursor(botoes[i].x + (botoes[i].w - tw) / 2, botoes[i].y + 16);
+  lcd.print(botoes[i].label);
 }
 
+void desenharMolduraCabeca() {
+  lcd.fillScreen(COLOR_BG);
+
+  // Badge JARVIS no topo
+  lcd.setFont(&fonts::Font0);
+  lcd.setTextColor(COLOR_CYAN, COLOR_BG);
+  lcd.drawRoundRect(170, 4, 140, 18, 4, COLOR_BLUE_GLOW);
+  lcd.setCursor(185, 9);
+  lcd.print("J.A.R.V.I.S. // 4.0\"");
+
+  // Carcaça Externa da Cabeça do Robô
+  lcd.fillRoundRect(30, 26, 420, 226, 36, COLOR_SHELL_EXT);
+  lcd.drawRoundRect(28, 24, 424, 230, 38, COLOR_BLUE_GLOW);
+
+  // Orelhinhas neon
+  lcd.fillRoundRect(12, 105, 18, 70, 8, COLOR_CYAN);
+  lcd.fillRoundRect(450, 105, 18, 70, 8, COLOR_CYAN);
+
+  // Visor de Vidro Escuro
+  lcd.fillRoundRect(45, 40, 390, 198, 26, COLOR_SHELL_INT);
+  lcd.drawRoundRect(45, 40, 390, 198, 26, 0x18E3);
+
+  for (int i = 0; i < 3; i++) {
+    desenharBotao(i);
+  }
+}
+
+void desenharOlhoSprite(LGFX_Sprite &spr, Expressao exp, bool isLeft) {
+  spr.fillScreen(COLOR_SHELL_INT);
+
+  switch (exp) {
+    case FACE_NEUTRO:
+      spr.drawFastHLine(6, 4, 55, COLOR_BLUE_GLOW);
+      spr.fillRoundRect(10, 16, 55, 68, 22, COLOR_CYAN);
+      spr.fillCircle(25, 32, 9, COLOR_WHITE);
+      spr.fillCircle(45, 62, 5, COLOR_WHITE);
+      break;
+
+    case FACE_PISCANDO:
+      spr.drawFastHLine(6, 12, 55, COLOR_BLUE_GLOW);
+      spr.fillRoundRect(6, 48, 62, 8, 4, COLOR_CYAN);
+      break;
+
+    case FACE_FELIZ:
+      spr.drawArc(37, 50, 34, 26, 200, 340, COLOR_CYAN);
+      spr.drawArc(37, 49, 34, 26, 200, 340, COLOR_WHITE);
+      spr.fillRoundRect(isLeft ? 4 : 45, 68, 26, 14, 7, COLOR_PINK_NEON);
+      break;
+
+    case FACE_OUVINDO:
+      spr.fillCircle(37, 48, 34, COLOR_CYAN);
+      spr.fillCircle(32, 38, 11, COLOR_WHITE);
+      break;
+
+    case FACE_FOCADO:
+      if (isLeft) spr.drawLine(4, 4, 65, 20, COLOR_ORANGE);
+      else spr.drawLine(65, 4, 4, 20, COLOR_ORANGE);
+      spr.fillRoundRect(10, 28, 55, 38, 12, COLOR_ORANGE);
+      spr.fillCircle(25, 38, 6, COLOR_WHITE);
+      break;
+
+    case FACE_SONO:
+      spr.drawArc(37, 42, 28, 22, 20, 160, COLOR_BLUE_GLOW);
+      break;
+  }
+}
+
+void atualizarRostoExpressivo() {
+  desenharOlhoSprite(eyeLeft, expressaoAtual, true);
+  desenharOlhoSprite(eyeRight, expressaoAtual, false);
+
+  int posX_L = 120 + olharOffset;
+  int posX_R = 285 + olharOffset;
+  int posY = 75;
+
+  eyeLeft.pushSprite(posX_L, posY);
+  eyeRight.pushSprite(posX_R, posY);
+
+  // Boca dinâmica
+  lcd.fillRect(190, 175, 100, 40, COLOR_SHELL_INT);
+
+  if (expressaoAtual == FACE_FELIZ) {
+    lcd.fillRoundRect(205, 178, 70, 30, 14, COLOR_CYAN);
+    lcd.fillRoundRect(210, 180, 60, 10, 5, COLOR_WHITE);
+  } else if (expressaoAtual == FACE_OUVINDO) {
+    lcd.drawCircle(240, 192, 14, COLOR_CYAN);
+    lcd.drawCircle(240, 192, 13, COLOR_CYAN);
+  } else if (expressaoAtual == FACE_FOCADO) {
+    lcd.drawFastHLine(215, 190, 50, COLOR_ORANGE);
+    lcd.drawFastHLine(215, 191, 50, COLOR_ORANGE);
+  } else if (expressaoAtual != FACE_SONO) {
+    lcd.drawArc(240, 182, 32, 28, 20, 160, COLOR_CYAN);
+  }
+}
+
+// ==============================================================================
+// 4. LEITURA CALIBRADA DO TOUCH COM FILTRO DE RUÍDO
+// ==============================================================================
+bool obterTouchCalibrado(int &calX, int &calY) {
+  uint16_t rawX, rawY;
+  if (!lcd.getTouch(&rawX, &rawY)) {
+    return false;
+  }
+
+  // Filtro de Média Rápida para eliminar ruídos no ADC do XPT2046
+  long sumX = rawX, sumY = rawY;
+  int count = 1;
+  for (int i = 0; i < 3; i++) {
+    delayMicroseconds(200);
+    uint16_t rx, ry;
+    if (lcd.getTouch(&rx, &ry)) {
+      sumX += rx;
+      sumY += ry;
+      count++;
+    }
+  }
+  rawX = sumX / count;
+  rawY = sumY / count;
+
+  // Calibração Matemática Baseada nos Pontos Medidos:
+  // X medido vai de ~85 (esquerda=40) até ~470 (direita=440)
+  calX = map(rawX, 85, 470, 40, 440);
+  calX = constrain(calX, 0, 479);
+
+  // Y medido vai de ~20 (topo=40) até ~260 (base=280)
+  calY = map(rawY, 20, 260, 40, 280);
+  calY = constrain(calY, 0, 319);
+
+  return true;
+}
+
+// ==============================================================================
+// 5. SETUP E LOOP
+// ==============================================================================
 void setup() {
   Serial.begin(115200);
   pinMode(LED_BUILTIN_PIN, OUTPUT);
@@ -158,10 +289,9 @@ void setup() {
   }
 
   Serial.println("\n==================================================");
-  Serial.println("🎯 [JARVIS DOCK] CALIBRAÇÃO ASSISTIDA DO TOUCH");
+  Serial.println("🤖 [JARVIS DOCK] TOUCH CALIBRADO COM FILTRO DE RUIDO");
   Serial.println("==================================================");
 
-  // Reset físico
   pinMode(8, OUTPUT);
   digitalWrite(8, HIGH); delay(50);
   digitalWrite(8, LOW);  delay(100);
@@ -171,83 +301,111 @@ void setup() {
   pinMode(5, OUTPUT);  digitalWrite(5, HIGH);
 
   lcd.init();
-  lcd.setRotation(1); // Paisagem 480x320
-  lcd.fillScreen(TFT_BLACK);
+  lcd.setRotation(1);
 
-  // 1. Tela de Instruções de Calibração
-  lcd.setTextColor(TFT_CYAN, TFT_BLACK);
-  lcd.setFont(&fonts::Font2);
-  lcd.setCursor(70, 70);
-  lcd.print("CALIBRACAO PRECISA DO TOUCH");
+  eyeLeft.setColorDepth(16);
+  eyeLeft.createSprite(EYE_MAX_W, EYE_MAX_H);
 
-  lcd.setTextColor(TFT_WHITE, TFT_BLACK);
-  lcd.setFont(&fonts::Font0);
-  lcd.setCursor(60, 110);
-  lcd.print("Toque com cuidado no centro das 4 cruzes que vao aparecer.");
-  lcd.setCursor(100, 130);
-  lcd.print("Use uma caneta touch ou ponta fina para precisao.");
+  eyeRight.setColorDepth(16);
+  eyeRight.createSprite(EYE_MAX_W, EYE_MAX_H);
 
-  lcd.setTextColor(TFT_YELLOW, TFT_BLACK);
-  lcd.setCursor(130, 170);
-  lcd.print("Iniciando em 2 segundos...");
-  delay(2500);
+  desenharMolduraCabeca();
+  atualizarRostoExpressivo();
 
-  // 2. Executa a rotina nativa de calibração afim do LovyanGFX
-  // Desenha 4 cruzes nos 4 cantos e calcula rotação, escala e espelhamento exatos
-  Serial.println("👉 [CALIBRANDO] Toque no centro de cada cruz na tela...");
-  lcd.calibrateTouch(calData, TFT_RED, TFT_WHITE, 25);
-
-  // 3. Imprime os dados de calibração no Serial para salvar
-  Serial.println("\n🎉 [CALIBRACAO CONCLUIDA COM SUCESSO!]");
-  Serial.print("📋 Matriz calculada: { ");
-  for (int i = 0; i < 8; i++) {
-    Serial.print(calData[i]);
-    if (i < 7) Serial.print(", ");
-  }
-  Serial.println(" }");
-  Serial.println("==================================================\n");
-
-  // 4. Entra na tela de Eixo Cartesiano com marcas
-  desenharEixoCartesiano();
-  calibrado = true;
+  Serial.println("✅ [SISTEMA PRONTO] Rosto e Botoes Prontos!");
 }
 
-int lastX = -1, lastY = -1;
+unsigned long lastTouchTs = 0;
 
 void loop() {
-  uint16_t x, y;
-  if (lcd.getTouch(&x, &y)) {
-    // Verifica se tocou no botão "LIMPAR" (190, 4, 100, 24)
-    if (x >= 190 && x <= 290 && y >= 4 && y <= 35) {
-      desenharEixoCartesiano();
-      delay(200);
-      return;
+  unsigned long agora = millis();
+
+  // 1. Piscadas Autônomas
+  if (expressaoAtual == FACE_NEUTRO) {
+    if (!emPiscar && (agora - ultimoPiscar > 3800)) {
+      emPiscar = true;
+      tempoInicioPiscar = agora;
+      expressaoAtual = FACE_PISCANDO;
+      atualizarRostoExpressivo();
+    } else if (emPiscar && (agora - tempoInicioPiscar > 160)) {
+      emPiscar = false;
+      ultimoPiscar = agora;
+      expressaoAtual = FACE_NEUTRO;
+      atualizarRostoExpressivo();
     }
 
-    // Desenha a marca do toque no ponto exato (círculo sólido com borda ciano)
-    lcd.fillCircle(x, y, 4, TFT_MAGENTA);
-    lcd.drawCircle(x, y, 8, TFT_CYAN);
-
-    // Se estiver arrastando, desenha linha contínua entre os pontos
-    if (lastX >= 0 && lastY >= 0) {
-      lcd.drawLine(lastX, lastY, x, y, TFT_WHITE);
+    if (!emPiscar && (agora - ultimoOlhar > 6000)) {
+      ultimoOlhar = agora;
+      static int seq = 0;
+      seq = (seq + 1) % 4;
+      if (seq == 1) olharTarget = 12;
+      else if (seq == 3) olharTarget = -12;
+      else olharTarget = 0;
     }
-    lastX = x;
-    lastY = y;
 
-    // Atualiza barra de coordenadas no topo direito
-    lcd.fillRect(310, 4, 160, 20, TFT_BLACK);
-    lcd.setTextColor(TFT_GREEN, TFT_BLACK);
-    lcd.setFont(&fonts::Font0);
-    lcd.setCursor(315, 8);
-    lcd.printf("X=%3d | Y=%3d", x, y);
-
-    // Imprime em tempo real no Serial
-    Serial.printf("🎯 TOUCH: X=%3d  Y=%3d\n", x, y);
-  } else {
-    lastX = -1;
-    lastY = -1;
+    if (olharOffset != olharTarget) {
+      olharOffset += (olharTarget - olharOffset) * 0.4f;
+      atualizarRostoExpressivo();
+    }
   }
 
-  delay(15);
+  // 2. Leitura Filtrada e Calibrada do Touch
+  int tx, ty;
+  if (obterTouchCalibrado(tx, ty)) {
+    lastTouchTs = agora;
+    Serial.printf("🎯 [TOUCH CALIBRADO] X=%d Y=%d\n", tx, ty);
+
+    for (int i = 0; i < 3; i++) {
+      bool dentro = (tx >= (botoes[i].x - 12) && tx <= (botoes[i].x + botoes[i].w + 12) &&
+                     ty >= (botoes[i].y - 15) && ty <= (botoes[i].y + botoes[i].h + 20));
+
+      if (dentro && !botoes[i].pressionado) {
+        botoes[i].pressionado = true;
+        desenharBotao(i);
+        expressaoAtual = FACE_FELIZ;
+        atualizarRostoExpressivo();
+
+        Serial.printf("{\"type\":\"arm_cmd\",\"action\":\"%s\"}\n", botoes[i].cmd);
+      }
+    }
+  } else {
+    // Soltou o dedo
+    if (agora - lastTouchTs > 150) {
+      bool precisaRedesenhar = false;
+      for (int i = 0; i < 3; i++) {
+        if (botoes[i].pressionado) {
+          botoes[i].pressionado = false;
+          desenharBotao(i);
+          precisaRedesenhar = true;
+        }
+      }
+      if (precisaRedesenhar) {
+        expressaoAtual = FACE_NEUTRO;
+        atualizarRostoExpressivo();
+      }
+    }
+  }
+
+  // 3. Comandos Seriais do Servidor
+  if (Serial.available()) {
+    String linha = Serial.readStringUntil('\n');
+    linha.trim();
+    if (linha.length() > 0) {
+      JsonDocument doc;
+      DeserializationError err = deserializeJson(doc, linha);
+      if (!err && doc["mood"].is<const char*>()) {
+        const char* m = doc["mood"];
+        if (strcmp(m, "happy") == 0) expressaoAtual = FACE_FELIZ;
+        else if (strcmp(m, "listen") == 0) expressaoAtual = FACE_OUVINDO;
+        else if (strcmp(m, "focus") == 0) expressaoAtual = FACE_FOCADO;
+        else if (strcmp(m, "sleep") == 0) expressaoAtual = FACE_SONO;
+        else expressaoAtual = FACE_NEUTRO;
+
+        atualizarRostoExpressivo();
+        Serial.printf("{\"ack\":\"face_updated\",\"mood\":\"%s\"}\n", m);
+      }
+    }
+  }
+
+  delay(20);
 }
