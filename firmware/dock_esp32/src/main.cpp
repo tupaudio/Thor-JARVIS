@@ -1,7 +1,7 @@
 /*
  * ==============================================================================
  * J.A.R.V.I.S. - Dock Terminal Inteligente 4.0" (ESP32-S3 + ILI9488 + Touch)
- * Firmware de Bancada: LovyanGFX + DMA + Rosto Expressivo + Touch XPT2046
+ * Hardware: Display no SPI2 (Dedicado) + Touch no SPI3 (Pinos Independentes)
  * ==============================================================================
  */
 
@@ -13,30 +13,30 @@
 #define LED_BUILTIN_PIN 21
 
 // ==============================================================================
-// 1. CONFIGURAÇÃO DE HARDWARE LOVYANGFX (DISPLAY + TOUCH NO MESMO SPI)
+// 1. CONFIGURAÇÃO LOVYANGFX: DISPLAY (SPI2) E TOUCH (SPI3) TOTALMENTE SEPARADOS
 // ==============================================================================
 class LGFX_JarvisDock : public lgfx::LGFX_Device {
   lgfx::Panel_ILI9488  _panel_instance;
-  lgfx::Bus_SPI        _bus_instance;
+  lgfx::Bus_SPI        _bus_display;
   lgfx::Touch_XPT2046  _touch_instance;
 
 public:
   LGFX_JarvisDock() {
-    // Barramento SPI Compartilhado
+    // ---------------- BARRAMENTO DO DISPLAY (SPI2_HOST) ----------------
     {
-      auto cfg = _bus_instance.config();
+      auto cfg = _bus_display.config();
       cfg.spi_host = SPI2_HOST;     // FSPI nativo
       cfg.spi_mode = 0;
-      cfg.freq_write = 15000000;    // 15 MHz estável
+      cfg.freq_write = 15000000;    // 15 MHz para jumpers
       cfg.freq_read  = 10000000;
       cfg.use_lock   = true;
       cfg.dma_channel = SPI_DMA_CH_AUTO;
-      cfg.pin_sclk = 12;            // SDK e TCK
-      cfg.pin_mosi = 11;            // SDI e TDI
-      cfg.pin_miso = 13;            // TDO (exclusivo do touch, SDO do LCD fica solto)
+      cfg.pin_sclk = 12;            // SDK (Clock)
+      cfg.pin_mosi = 11;            // SDI (Data In / MOSI)
+      cfg.pin_miso = -1;            // SDO solto
       cfg.pin_dc   = 9;             // C/D (Command / Data)
-      _bus_instance.config(cfg);
-      _panel_instance.setBus(&_bus_instance);
+      _bus_display.config(cfg);
+      _panel_instance.setBus(&_bus_display);
     }
 
     // Painel ILI9488 (480x320)
@@ -48,7 +48,7 @@ public:
       cfg.panel_height = 480;
       cfg.offset_x     = 0;
       cfg.offset_y     = 0;
-      cfg.bus_shared   = true;      // Barramento compartilhado com o touch
+      cfg.bus_shared   = false;     // Display tem barramento exclusivo!
       cfg.readable     = false;
       cfg.invert       = false;
       cfg.rgb_order    = false;
@@ -56,17 +56,17 @@ public:
       _panel_instance.config(cfg);
     }
 
-    // Controlador de Touch XPT2046
+    // ---------------- BARRAMENTO DO TOUCH (SPI3_HOST - PINOS INDEPENDENTES) ----------------
     {
       auto cfg = _touch_instance.config();
-      cfg.spi_host = SPI2_HOST;
+      cfg.spi_host = SPI3_HOST;     // Segundo canal SPI de Hardware do ESP32-S3!
       cfg.freq     = 2500000;       // 2.5 MHz para XPT2046
-      cfg.pin_sclk = 12;            // TCK
-      cfg.pin_mosi = 11;            // TDI
-      cfg.pin_miso = 13;            // TDO
-      cfg.pin_cs   = 5;             // TCS
-      cfg.pin_int  = 4;             // PEN
-      cfg.bus_shared = true;
+      cfg.pin_sclk = 6;             // TCK (Touch Clock) no GPIO 6
+      cfg.pin_mosi = 7;             // TDI (Touch Data In) no GPIO 7
+      cfg.pin_miso = 13;            // TDO (Touch Data Out) no GPIO 13
+      cfg.pin_cs   = 5;             // TCS (Touch Chip Select) no GPIO 5
+      cfg.pin_int  = 4;             // PEN (Touch IRQ) no GPIO 4
+      cfg.bus_shared = false;       // Não compartilha pinos com display
       cfg.x_min    = 300;
       cfg.x_max    = 3900;
       cfg.y_min    = 300;
@@ -226,9 +226,9 @@ void setup() {
   }
 
   Serial.println("\n\n==================================================");
-  Serial.println("🤖 [JARVIS DOCK] ESP32-S3 + ILI9488 + TOUCH XPT2046");
-  Serial.println("🔌 Pinagem: CD=10, RST=8, C/D=9, SDI=11, SDK=12");
-  Serial.println("👆 Touch: TCK=12, TDI=11, TDO=13, TCS=5, PEN=4");
+  Serial.println("🤖 [JARVIS DOCK] ESP32-S3 + ILI9488 + TOUCH INDEPENDENTE");
+  Serial.println("📺 Display (SPI2): CD=10, RST=8, C/D=9, SDI=11, SDK=12");
+  Serial.println("👆 Touch (SPI3):   TCK=6, TDI=7, TDO=13, TCS=5, PEN=4");
   Serial.println("==================================================");
 
   // 1. Reset elétrico físico no pino RST (GPIO 8)
@@ -242,7 +242,7 @@ void setup() {
   pinMode(5, OUTPUT);  digitalWrite(5, HIGH);
 
   // 3. Inicialização LovyanGFX
-  Serial.println("2. Inicializando Display e Touch...");
+  Serial.println("2. Inicializando Display e Touch independentes...");
   lcd.init();
   lcd.setRotation(1); // Paisagem 480x320
   lcd.fillScreen(COLOR_BG);
@@ -262,26 +262,21 @@ unsigned long lastLog = 0;
 bool ledState = false;
 
 void loop() {
-  // 1. Renderiza olhos expressivos
   atualizarAnimacaoOlhos();
 
-  // 2. Leitura do Touch XPT2046
+  // Leitura do Touch XPT2046
   uint16_t touchX, touchY;
   if (lcd.getTouch(&touchX, &touchY)) {
-    // Desenha cursor de feedback onde tocou
     lcd.fillCircle(touchX, touchY, 6, COLOR_WHITE);
     lcd.drawCircle(touchX, touchY, 14, COLOR_CYAN);
 
-    // Atualiza barra inferior
     lcd.fillRect(15, 308, 300, 10, COLOR_BG);
     lcd.setCursor(15, 308);
     lcd.printf("TOUCH: X=%d Y=%d", touchX, touchY);
 
-    // Envia evento via serial para o servidor
     Serial.printf("{\"type\":\"touch\",\"x\":%d,\"y\":%d}\n", touchX, touchY);
   }
 
-  // 3. Heartbeat e Comandos Seriais
   unsigned long now = millis();
   if (now - lastLog > 3000) {
     lastLog = now;
