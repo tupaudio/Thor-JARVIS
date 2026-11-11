@@ -181,8 +181,6 @@ void desenharMolduraCabeca() {
 void desenharOlhoSprite(LGFX_Sprite &spr, Expressao exp, bool isLeft) {
   spr.fillScreen(COLOR_SHELL_INT);
 
-  int ox = olharOffset;
-
   switch (exp) {
     case FACE_NEUTRO:
       // Sobrancelha
