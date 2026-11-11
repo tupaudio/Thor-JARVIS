@@ -383,3 +383,4 @@ class SerialCommController:
 
 serial_controller = SerialCommController()
 hardware = serial_controller
+serial_comm = serial_controller

@@ -164,35 +164,29 @@ class DockManager:
             tipo = d.get("type", "")
             
             if tipo == "arm_cmd":
-                acao = d.get("action", "").lower()
-                print(f"\n🤖 [DOCK TOUCH] Comando recebido da tela: {acao.upper()}")
+                acao = d.get("action", "").lower().strip()
+                print(f"\n👆 [DOCK TOUCH] Comando recebido da tela: {acao.upper()}", flush=True)
                 
-                # Encaminha o comando com envio garantido para o Arduino Uno do braço
-                enviado = False
+                # Encaminha o comando usando o mesmo hardware controller testado e aprovado do iPhone
                 try:
-                    from serial_comm import serial_comm
+                    from hardware_simulator import hardware
                     if acao == "wave":
-                        print("  -> Executando ACENAR no Arduino...")
-                        enviado = serial_comm.enviar_comando("CMD:WAVE")
-                        serial_comm.mover_braco("acenar")
+                        print("  -> Executando ACENAR no Braço Robótico...", flush=True)
+                        hardware.mover_braco("acenar", detalhes="Acionado via Tela Touch 4.0\" ESP32-S3")
                     elif acao == "point":
-                        print("  -> Executando APONTAR no Arduino...")
-                        enviado = serial_comm.enviar_comando("CMD:POINT")
-                        serial_comm.mover_braco("apontar")
+                        print("  -> Executando APONTAR no Braço Robótico...", flush=True)
+                        hardware.mover_braco("apontar", detalhes="Acionado via Tela Touch 4.0\" ESP32-S3")
                     elif acao in ("rest", "repouso", "descanso"):
-                        print("  -> Executando REPOUSO no Arduino...")
-                        enviado = serial_comm.enviar_comando("CMD:REST")
-                        serial_comm.mover_braco("repouso")
+                        print("  -> Executando REPOUSO no Braço Robótico...", flush=True)
+                        hardware.mover_braco("repouso", detalhes="Acionado via Tela Touch 4.0\" ESP32-S3")
                     elif "garra" in acao:
                         self._garra_aberta = not self._garra_aberta
-                        cmd_g = "CMD:GARRA:OPEN" if self._garra_aberta else "CMD:GARRA:CLOSE"
-                        print(f"  -> Alternando Garra: {cmd_g}...")
-                        enviado = serial_comm.enviar_comando(cmd_g)
+                        cmd_g = "abrir garra" if self._garra_aberta else "fechar garra"
+                        print(f"  -> Alternando Garra: {cmd_g}...", flush=True)
+                        hardware.mover_braco(cmd_g, detalhes="Acionado via Tela Touch 4.0\" ESP32-S3")
                         self.enviar_notificacao(f"GARRA: {'ABERTA' if self._garra_aberta else 'FECHADA'}")
                 except Exception as e:
-                    print(f"⚠️ [DOCK] Erro via serial_comm: {e}")
-
-                if not enviado and acao in ("wave", "point", "rest", "repouso"):
+                    print(f"⚠️ [DOCK] Falha ao acionar hardware: {e}. Tentando fallback direto...", flush=True)
                     self._enviar_braco_direto(acao)
 
         except json.JSONDecodeError:
@@ -206,8 +200,14 @@ class DockManager:
             try:
                 linha = self._serial.readline().decode("utf-8", errors="ignore").strip()
                 if linha:
-                    if linha.startswith("{") and linha.endswith("}"):
-                        self._processar_evento_dock(linha)
+                    # Suporta parsing robusto mesmo com dados extras na linha serial
+                    if "{" in linha and "}" in linha:
+                        try:
+                            ini = linha.index("{")
+                            fim = linha.rindex("}") + 1
+                            self._processar_evento_dock(linha[ini:fim])
+                        except Exception:
+                            pass
             except Exception:
                 self.conectado = False
                 time.sleep(2.0)
