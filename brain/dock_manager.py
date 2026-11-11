@@ -43,7 +43,31 @@ class DockManager:
             if self.conectado and self._serial and self._serial.is_open:
                 return True
 
-            candidatas = [self.porta_dock, "/dev/ttyACM0", "/dev/ttyACM1"]
+            import glob
+            candidatas = []
+            
+            # 1. Procura primeiro pelos links persistentes em /dev/serial/by-id/
+            for l in glob.glob("/dev/serial/by-id/*"):
+                base = os.path.basename(l).lower()
+                if "espressif" in base or "esp32" in base or "jtag" in base:
+                    candidatas.append(os.path.realpath(l))
+                    break
+
+            # 2. Procura via list_ports
+            try:
+                for p in serial.tools.list_ports.comports():
+                    info = f"{p.device} {p.description} {p.hwid}".lower()
+                    if "esp32" in info or "espressif" in info or "jtag" in info:
+                        if p.device not in candidatas:
+                            candidatas.append(p.device)
+            except Exception:
+                pass
+
+            # 3. Fallbacks comuns configurados
+            for padrao in [self.porta_dock, "/dev/ttyACM0", "/dev/ttyACM1", "/dev/ttyACM2"]:
+                if padrao and padrao not in candidatas and os.path.exists(padrao):
+                    candidatas.append(padrao)
+
             for cand in candidatas:
                 if cand and os.path.exists(cand):
                     try:
