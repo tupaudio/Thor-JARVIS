@@ -23,5 +23,5 @@ fi
 
 echo "✅ Usando Python: ${PYTHON_EXEC}"
 
-# Executa a ponte direta garantida
-exec "${PYTHON_EXEC}" brain/ponte_direta.py
+# Executa a ponte direta garantida com stdout unbuffered
+exec "${PYTHON_EXEC}" -u brain/ponte_direta.py
