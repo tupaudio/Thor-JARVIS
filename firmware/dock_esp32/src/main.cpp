@@ -1,7 +1,7 @@
 /*
  * ==============================================================================
- * J.A.R.V.I.S. - Dock Terminal Inteligente 4.0" (ESP32-S3 + ILI9488 + Touch)
- * Hardware: Display no SPI2 + Touch no SPI3 (Eixo X Calibrado + Botões Táteis)
+ * J.A.R.V.I.S. - Dock Terminal Inteligente 4.0" (ESP32-S3 + ILI9488 Touch)
+ * Rosto Social Robótico Completo (Estilo Emoji / Astro Bot / EVE em Cores HD)
  * ==============================================================================
  */
 
@@ -13,7 +13,7 @@
 #define LED_BUILTIN_PIN 21
 
 // ==============================================================================
-// 1. CONFIGURAÇÃO LOVYANGFX COM CALIBRAÇÃO DO TOUCH
+// 1. CONFIGURAÇÃO DE HARDWARE LOVYANGFX (DISPLAY SPI2 + TOUCH SPI3)
 // ==============================================================================
 class LGFX_JarvisDock : public lgfx::LGFX_Device {
   lgfx::Panel_ILI9488  _panel_instance;
@@ -22,7 +22,7 @@ class LGFX_JarvisDock : public lgfx::LGFX_Device {
 
 public:
   LGFX_JarvisDock() {
-    // ---------------- DISPLAY (SPI2) ----------------
+    // Barramento Display (SPI2)
     {
       auto cfg = _bus_display.config();
       cfg.spi_host = SPI2_HOST;
@@ -39,6 +39,7 @@ public:
       _panel_instance.setBus(&_bus_display);
     }
 
+    // Painel 480x320
     {
       auto cfg = _panel_instance.config();
       cfg.pin_cs   = 10;            // CD
@@ -53,7 +54,7 @@ public:
       _panel_instance.config(cfg);
     }
 
-    // ---------------- TOUCH XPT2046 (SPI3) ----------------
+    // Barramento Touch (SPI3 independente)
     {
       auto cfg = _touch_instance.config();
       cfg.spi_host = SPI3_HOST;
@@ -64,9 +65,7 @@ public:
       cfg.pin_cs   = 5;             // TCS
       cfg.pin_int  = 4;             // PEN
       cfg.bus_shared = false;
-
-      // Inversão do Eixo X para espelhar horizontalmente:
-      cfg.x_min    = 3900;          // Invertido (direita -> esquerda corrigido)
+      cfg.x_min    = 3900;          // Invertido para acertar a orientação
       cfg.x_max    = 300;
       cfg.y_min    = 300;
       cfg.y_max    = 3900;
@@ -80,169 +79,209 @@ public:
 
 LGFX_JarvisDock lcd;
 
-LGFX_Sprite eyeLeft(&lcd);
-LGFX_Sprite eyeRight(&lcd);
+// Sprite de rosto completo renderizado com DMA para zero flickering
+LGFX_Sprite faceCanvas(&lcd);
 
-enum Mood {
-  MOOD_NEUTRAL,
-  MOOD_HAPPY,
-  MOOD_THINKING,
-  MOOD_ALERT,
-  MOOD_SLEEP
+// ==============================================================================
+// 2. PALETA DE CORES CYBERPUNK ROBOT
+// ==============================================================================
+const uint16_t COLOR_BG        = 0x0000; // Preto
+const uint16_t COLOR_SHELL_EXT = 0x2124; // Cinza titânio da carcaça do robô
+const uint16_t COLOR_SHELL_INT = 0x0841; // Preto profundo do visor
+const uint16_t COLOR_CYAN      = 0x07FF; // Ciano elétrico Arc Reactor
+const uint16_t COLOR_BLUE_GLOW = 0x03B9; // Brilho azul
+const uint16_t COLOR_WHITE     = 0xFFFF; // Brilho dos olhos
+const uint16_t COLOR_PINK_NEON = 0xF9D5; // Bochechinhas felizes
+const uint16_t COLOR_ORANGE    = 0xFD20; // Alerta / Foco
+const uint16_t COLOR_BTN_BG    = 0x0926; // Fundo de botões táteis
+const uint16_t COLOR_BTN_ACT   = 0x04F4; // Botão acionado
+
+// ==============================================================================
+// 3. ESTADOS E ANIMAÇÕES DO ROSTO
+// ==============================================================================
+enum Expressao {
+  FACE_NEUTRO,
+  FACE_PISCANDO,
+  FACE_OUVINDO,
+  FACE_FELIZ,
+  FACE_FOCADO,
+  FACE_SONO
 };
 
-Mood currentMood = MOOD_NEUTRAL;
+Expressao expressaoAtual = FACE_NEUTRO;
+int olharOffset = 0;
+int olharTarget = 0;
 
-const int EYE_MAX_W = 76;
-const int EYE_MAX_H = 110;
-const int EYE_RADIUS = 30;
+unsigned long ultimoPiscar = 0;
+unsigned long tempoInicioPiscar = 0;
+bool emPiscar = false;
+unsigned long ultimoOlhar = 0;
 
-float curEyeH = EYE_MAX_H;
-float tgtEyeH = EYE_MAX_H;
-float curEyeW = EYE_MAX_W;
-float tgtEyeW = EYE_MAX_W;
-
-int eyeOffsetX = 0;
-int eyeOffsetY = 0;
-int tgtOffsetX = 0;
-int tgtOffsetY = 0;
-
-unsigned long lastBlinkTs = 0;
-unsigned long nextBlinkInterval = 3500;
-bool isBlinking = false;
-unsigned long blinkStartTs = 0;
-
-unsigned long lastSaccadeTs = 0;
-unsigned long nextSaccadeInterval = 4000;
-
-const uint16_t COLOR_BG       = 0x0000;
-const uint16_t COLOR_CYAN     = 0x07FF;
-const uint16_t COLOR_BLUE_GLOW= 0x03B9;
-const uint16_t COLOR_ORANGE   = 0xFD20;
-const uint16_t COLOR_WHITE    = 0xFFFF;
-const uint16_t COLOR_BTN_BG   = 0x10A2; // Azul escuro translúcido
-const uint16_t COLOR_BTN_ACT  = 0x04F4; // Azul aceso no toque
-
-// Estrutura de Botões Tácteis
-struct TouchButton {
+// Botões táteis na base da tela
+struct Botao {
   int x, y, w, h;
   const char* label;
   const char* cmd;
-  bool isPressed;
+  bool pressionado;
 };
 
-TouchButton btnWave    = { 20,  265, 120, 42, "ACENAR",  "WAVE", false };
-TouchButton btnClaw    = { 180, 265, 120, 42, "GARRA",   "GARRA_TOGGLE", false };
-TouchButton btnRest    = { 340, 265, 120, 42, "DESCANSO","REST", false };
+Botao botoes[] = {
+  { 15,  265, 135, 45, "ACENAR",   "WAVE", false },
+  { 172, 265, 135, 45, "GARRA",    "GARRA_TOGGLE", false },
+  { 330, 265, 135, 45, "DESCANSO", "REST", false }
+};
 
-void desenharBotao(TouchButton &btn) {
-  uint16_t bg = btn.isPressed ? COLOR_BTN_ACT : COLOR_BTN_BG;
-  uint16_t border = btn.isPressed ? COLOR_WHITE : COLOR_CYAN;
-  uint16_t textCol = btn.isPressed ? COLOR_BG : COLOR_WHITE;
+// ==============================================================================
+// 4. DESENHO ARTÍSTICO DA CABEÇA DO ROBÔ SOCIAL EM CORES HD
+// ==============================================================================
+void desenharRostoRobo() {
+  faceCanvas.fillScreen(COLOR_BG);
 
-  lcd.fillRoundRect(btn.x, btn.y, btn.w, btn.h, 6, bg);
-  lcd.drawRoundRect(btn.x, btn.y, btn.w, btn.h, 6, border);
+  // 1. Badge JARVIS no topo com moldura cibernética
+  faceCanvas.setFont(&fonts::Font0);
+  faceCanvas.setTextColor(COLOR_CYAN, COLOR_BG);
+  faceCanvas.drawRoundRect(170, 4, 140, 18, 4, COLOR_BLUE_GLOW);
+  faceCanvas.setCursor(185, 9);
+  faceCanvas.print("J.A.R.V.I.S. // 4.0\"");
 
-  lcd.setFont(&fonts::Font0);
-  lcd.setTextColor(textCol, bg);
-  int strW = lcd.textWidth(btn.label);
-  lcd.setCursor(btn.x + (btn.w - strW) / 2, btn.y + 16);
-  lcd.print(btn.label);
+  // 2. Carcaça Externa da Cabeça do Robô (Curvas suaves estilo EVE / Astro Bot)
+  // Largura: 420px, Altura: 215px, centralizado em X=30, Y=28
+  faceCanvas.fillRoundRect(30, 28, 420, 225, 36, COLOR_SHELL_EXT);
+  faceCanvas.drawRoundRect(28, 26, 424, 229, 38, COLOR_BLUE_GLOW);
+
+  // Orelhinhas / Antenas laterais do robô com iluminação neon
+  faceCanvas.fillRoundRect(12, 105, 18, 70, 8, COLOR_CYAN);
+  faceCanvas.fillRoundRect(450, 105, 18, 70, 8, COLOR_CYAN);
+
+  // 3. Visor de Vidro Escuro Interno
+  faceCanvas.fillRoundRect(45, 42, 390, 197, 26, COLOR_SHELL_INT);
+  faceCanvas.drawRoundRect(45, 42, 390, 197, 26, 0x18E3);
+
+  // 4. Expressões Faciais com Suavização de Olhar
+  int ox = olharOffset;
+
+  switch (expressaoAtual) {
+    case FACE_NEUTRO:
+      // Sobrancelhas elegantes
+      faceCanvas.drawFastHLine(115, 75, 60, COLOR_BLUE_GLOW);
+      faceCanvas.drawFastHLine(305, 75, 60, COLOR_BLUE_GLOW);
+
+      // Olhos grandes estilo Pílula brilhante com reflexo duplo de anime
+      // Olho Esquerdo:
+      faceCanvas.fillRoundRect(120 + ox, 92, 55, 75, 24, COLOR_CYAN);
+      faceCanvas.fillCircle(136 + ox, 110, 10, COLOR_WHITE); // Reflexo grande
+      faceCanvas.fillCircle(155 + ox, 142, 5, COLOR_WHITE);  // Reflexo pequeno
+
+      // Olho Direito:
+      faceCanvas.fillRoundRect(305 + ox, 92, 55, 75, 24, COLOR_CYAN);
+      faceCanvas.fillCircle(321 + ox, 110, 10, COLOR_WHITE);
+      faceCanvas.fillCircle(340 + ox, 142, 5, COLOR_WHITE);
+
+      // Sorriso amigável suave
+      faceCanvas.drawArc(240, 175, 35, 32, 20, 160, COLOR_CYAN);
+      break;
+
+    case FACE_PISCANDO:
+      // Sobrancelhas relaxadas
+      faceCanvas.drawFastHLine(115, 82, 60, COLOR_BLUE_GLOW);
+      faceCanvas.drawFastHLine(305, 82, 60, COLOR_BLUE_GLOW);
+
+      // Pálpebras fechadas em linha suave
+      faceCanvas.fillRoundRect(115, 128, 65, 8, 4, COLOR_CYAN);
+      faceCanvas.fillRoundRect(300, 128, 65, 8, 4, COLOR_CYAN);
+
+      // Sorriso calmo
+      faceCanvas.drawArc(240, 175, 35, 32, 30, 150, COLOR_CYAN);
+      break;
+
+    case FACE_FELIZ:
+      // Olhos sorridentes em arco para cima (^ ^)
+      faceCanvas.drawArc(145 + ox, 135, 40, 32, 200, 340, COLOR_CYAN);
+      faceCanvas.drawArc(145 + ox, 134, 40, 32, 200, 340, COLOR_WHITE);
+
+      faceCanvas.drawArc(335 + ox, 135, 40, 32, 200, 340, COLOR_CYAN);
+      faceCanvas.drawArc(335 + ox, 134, 40, 32, 200, 340, COLOR_WHITE);
+
+      // Bochechinhas coradas brilhantes
+      faceCanvas.fillRoundRect(85 + ox, 145, 30, 14, 7, COLOR_PINK_NEON);
+      faceCanvas.fillRoundRect(365 + ox, 145, 30, 14, 7, COLOR_PINK_NEON);
+
+      // Grande sorriso aberto de robô alegre
+      faceCanvas.fillRoundRect(205, 170, 70, 32, 14, COLOR_CYAN);
+      faceCanvas.fillRoundRect(210, 173, 60, 12, 6, COLOR_WHITE); // Dente/brilho
+      break;
+
+    case FACE_OUVINDO:
+      // Olhos arregalados e muito curiosos
+      faceCanvas.fillCircle(145 + ox, 125, 38, COLOR_CYAN);
+      faceCanvas.fillCircle(140 + ox, 115, 12, COLOR_WHITE);
+
+      faceCanvas.fillCircle(335 + ox, 125, 38, COLOR_CYAN);
+      faceCanvas.fillCircle(330 + ox, 115, 12, COLOR_WHITE);
+
+      // Ondas de radar sonoro saindo das orelhas
+      faceCanvas.drawCircle(20, 140, 15, COLOR_CYAN);
+      faceCanvas.drawCircle(20, 140, 25, COLOR_BLUE_GLOW);
+      faceCanvas.drawCircle(460, 140, 15, COLOR_CYAN);
+      faceCanvas.drawCircle(460, 140, 25, COLOR_BLUE_GLOW);
+
+      // Boquinha curiosa em 'O'
+      faceCanvas.drawCircle(240, 185, 14, COLOR_CYAN);
+      break;
+
+    case FACE_FOCADO:
+      // Sobrancelhas inclinadas determinadas
+      faceCanvas.drawLine(110, 75, 175, 95, COLOR_ORANGE);
+      faceCanvas.drawLine(370, 75, 305, 95, COLOR_ORANGE);
+
+      // Olhos estreitos de concentração
+      faceCanvas.fillRoundRect(120, 105, 55, 38, 12, COLOR_ORANGE);
+      faceCanvas.fillCircle(135, 115, 6, COLOR_WHITE);
+
+      faceCanvas.fillRoundRect(305, 105, 55, 38, 12, COLOR_ORANGE);
+      faceCanvas.fillCircle(320, 115, 6, COLOR_WHITE);
+
+      // Boca em linha firme
+      faceCanvas.drawFastHLine(215, 182, 50, COLOR_ORANGE);
+      break;
+
+    case FACE_SONO:
+      // Olhos caídos dormindo
+      faceCanvas.drawArc(145, 125, 30, 24, 20, 160, COLOR_BLUE_GLOW);
+      faceCanvas.drawArc(335, 125, 30, 24, 20, 160, COLOR_BLUE_GLOW);
+
+      // Letras Z z z flutuando
+      faceCanvas.setFont(&fonts::Font0);
+      faceCanvas.setTextColor(COLOR_CYAN, COLOR_SHELL_INT);
+      faceCanvas.setCursor(375, 65);  faceCanvas.print("Z");
+      faceCanvas.setCursor(390, 52);  faceCanvas.print("z");
+      faceCanvas.setCursor(402, 42);  faceCanvas.print("z");
+      break;
+  }
+
+  // 5. Desenha os 3 Botões Táteis na Base
+  for (int i = 0; i < 3; i++) {
+    uint16_t bg = botoes[i].pressionado ? COLOR_BTN_ACT : COLOR_BTN_BG;
+    uint16_t borda = botoes[i].pressionado ? COLOR_WHITE : COLOR_CYAN;
+    uint16_t txt = botoes[i].pressionado ? COLOR_BG : COLOR_WHITE;
+
+    faceCanvas.fillRoundRect(botoes[i].x, botoes[i].y, botoes[i].w, botoes[i].h, 8, bg);
+    faceCanvas.drawRoundRect(botoes[i].x, botoes[i].y, botoes[i].w, botoes[i].h, 8, borda);
+
+    faceCanvas.setFont(&fonts::Font2);
+    faceCanvas.setTextColor(txt, bg);
+    int tw = faceCanvas.textWidth(botoes[i].label);
+    faceCanvas.setCursor(botoes[i].x + (botoes[i].w - tw) / 2, botoes[i].y + 14);
+    faceCanvas.print(botoes[i].label);
+  }
+
+  // Empurra o quadro inteiro para o display via DMA em milissegundos
+  faceCanvas.pushSprite(0, 0);
 }
 
-void desenharHUD() {
-  lcd.setFont(&fonts::Font0);
-  lcd.setTextColor(COLOR_CYAN, COLOR_BG);
-  lcd.setCursor(15, 10);
-  lcd.print("J.A.R.V.I.S. DOCK 4.0 // ESP32-S3 CORE");
-
-  lcd.setCursor(370, 10);
-  lcd.printf("USB 115.2k");
-
-  lcd.drawFastHLine(10, 24, 460, COLOR_BLUE_GLOW);
-
-  // Desenha os 3 botões touch
-  desenharBotao(btnWave);
-  desenharBotao(btnClaw);
-  desenharBotao(btnRest);
-}
-
-void desenharOlhoNoSprite(LGFX_Sprite &spr, float h, float w, Mood mood, bool isLeft) {
-  spr.fillScreen(COLOR_BG);
-
-  if (h <= 4) {
-    spr.fillRoundRect(8, (EYE_MAX_H / 2) - 3, EYE_MAX_W - 16, 6, 3, COLOR_CYAN);
-    return;
-  }
-
-  uint16_t eyeColor = (mood == MOOD_ALERT) ? COLOR_ORANGE : COLOR_CYAN;
-  int x = (EYE_MAX_W - (int)w) / 2;
-  int y = (EYE_MAX_H - (int)h) / 2;
-  int r = min((int)w, (int)h) / 2;
-  if (r > EYE_RADIUS) r = EYE_RADIUS;
-
-  spr.fillRoundRect(x, y, (int)w, (int)h, r, COLOR_BLUE_GLOW);
-  spr.fillRoundRect(x + 3, y + 3, (int)w - 6, (int)h - 6, max(2, r - 3), eyeColor);
-  spr.fillCircle(x + (int)w - 18, y + 16, 7, COLOR_WHITE);
-
-  if (mood == MOOD_HAPPY) {
-    spr.fillRect(x, y + ((int)h * 0.65f), (int)w, (int)h * 0.4f, COLOR_BG);
-  } else if (mood == MOOD_THINKING) {
-    if (isLeft) spr.fillTriangle(x, y, x + (int)w, y, x + (int)w, y + 25, COLOR_BG);
-    else spr.fillTriangle(x, y, x + (int)w, y, x, y + 25, COLOR_BG);
-  }
-}
-
-void atualizarAnimacaoOlhos() {
-  unsigned long now = millis();
-
-  if (!isBlinking && (now - lastBlinkTs > nextBlinkInterval)) {
-    isBlinking = true;
-    blinkStartTs = now;
-  }
-
-  if (isBlinking) {
-    unsigned long elapsed = now - blinkStartTs;
-    if (elapsed < 80) tgtEyeH = 2.0f;
-    else if (elapsed < 160) tgtEyeH = EYE_MAX_H;
-    else {
-      isBlinking = false;
-      lastBlinkTs = now;
-      nextBlinkInterval = random(2500, 6000);
-    }
-  } else {
-    tgtEyeH = (currentMood == MOOD_SLEEP) ? 6.0f : EYE_MAX_H;
-  }
-
-  if (!isBlinking && (now - lastSaccadeTs > nextSaccadeInterval)) {
-    lastSaccadeTs = now;
-    nextSaccadeInterval = random(3000, 7000);
-    int r = random(0, 5);
-    if (r == 0) { tgtOffsetX = 0; tgtOffsetY = 0; }
-    else if (r == 1) { tgtOffsetX = -20; tgtOffsetY = 0; }
-    else if (r == 2) { tgtOffsetX = 20; tgtOffsetY = 0; }
-    else if (r == 3) { tgtOffsetX = 0; tgtOffsetY = -12; }
-    else if (r == 4) { tgtOffsetX = 12; tgtOffsetY = 10; }
-  }
-
-  curEyeH += (tgtEyeH - curEyeH) * 0.35f;
-  curEyeW += (tgtEyeW - curEyeW) * 0.35f;
-  eyeOffsetX += (tgtOffsetX - eyeOffsetX) * 0.25f;
-  eyeOffsetY += (tgtOffsetY - eyeOffsetY) * 0.25f;
-
-  desenharOlhoNoSprite(eyeLeft, curEyeH, curEyeW, currentMood, true);
-  desenharOlhoNoSprite(eyeRight, curEyeH, curEyeW, currentMood, false);
-
-  // Olhos centralizados um pouco mais para cima para dar espaço aos botões
-  int posX_L = 140 - (EYE_MAX_W / 2) + eyeOffsetX;
-  int posY_L = 135 - (EYE_MAX_H / 2) + eyeOffsetY;
-  int posX_R = 340 - (EYE_MAX_W / 2) + eyeOffsetX;
-  int posY_R = 135 - (EYE_MAX_H / 2) + eyeOffsetY;
-
-  eyeLeft.pushSprite(posX_L, posY_L);
-  eyeRight.pushSprite(posX_R, posY_R);
-}
-
+// ==============================================================================
+// 5. SETUP E LOOP
+// ==============================================================================
 void setup() {
   Serial.begin(115200);
   pinMode(LED_BUILTIN_PIN, OUTPUT);
@@ -255,7 +294,7 @@ void setup() {
   }
 
   Serial.println("\n==================================================");
-  Serial.println("🤖 [JARVIS DOCK] TOUCH CALIBRADO + BOTOES DE BANCADA");
+  Serial.println("🤖 [JARVIS DOCK] ROSTO SOCIAL HD + TOUCH CALIBRADO");
   Serial.println("==================================================");
 
   // Reset físico
@@ -268,55 +307,91 @@ void setup() {
   pinMode(5, OUTPUT);  digitalWrite(5, HIGH);
 
   lcd.init();
-  lcd.setRotation(1);
+  lcd.setRotation(1); // Paisagem 480x320
   lcd.fillScreen(COLOR_BG);
 
-  eyeLeft.setColorDepth(16);
-  eyeLeft.createSprite(EYE_MAX_W, EYE_MAX_H);
+  // Aloca o canvas do rosto completo em memória de vídeo
+  faceCanvas.setColorDepth(16);
+  faceCanvas.createSprite(480, 320);
 
-  eyeRight.setColorDepth(16);
-  eyeRight.createSprite(EYE_MAX_W, EYE_MAX_H);
-
-  desenharHUD();
-  Serial.println("✅ [SISTEMA PRONTO] Toque nos botoes para testar!");
-}
-
-void testarCliqueBotao(TouchButton &btn, int tx, int ty) {
-  bool dentro = (tx >= btn.x && tx <= btn.x + btn.w && ty >= btn.y && ty <= btn.y + btn.h);
-  if (dentro && !btn.isPressed) {
-    btn.isPressed = true;
-    desenharBotao(btn);
-    currentMood = MOOD_HAPPY; // Robô fica feliz ao clicar!
-
-    Serial.printf("{\"type\":\"arm_cmd\",\"action\":\"%s\"}\n", btn.cmd);
-  } else if (!dentro && btn.isPressed) {
-    btn.isPressed = false;
-    desenharBotao(btn);
-  }
+  desenharRostoRobo();
+  Serial.println("✅ [SISTEMA PRONTO] Rosto Social Ativo!");
 }
 
 unsigned long lastTouchTs = 0;
+unsigned long lastLogTs = 0;
 
 void loop() {
-  atualizarAnimacaoOlhos();
+  unsigned long agora = millis();
 
-  // Leitura do Touch
-  uint16_t tx, ty;
-  if (lcd.getTouch(&tx, &ty)) {
-    lastTouchTs = millis();
-    testarCliqueBotao(btnWave, tx, ty);
-    testarCliqueBotao(btnClaw, tx, ty);
-    testarCliqueBotao(btnRest, tx, ty);
-  } else {
-    // Soltou o touch: desmarca botões
-    if (millis() - lastTouchTs > 100) {
-      if (btnWave.isPressed) { btnWave.isPressed = false; desenharBotao(btnWave); }
-      if (btnClaw.isPressed) { btnClaw.isPressed = false; desenharBotao(btnClaw); }
-      if (btnRest.isPressed) { btnRest.isPressed = false; desenharBotao(btnRest); }
+  // 1. Animação Autônoma da Face (Piscadas a cada 3.8s)
+  if (expressaoAtual == FACE_NEUTRO) {
+    if (!emPiscar && (agora - ultimoPiscar > 3800)) {
+      emPiscar = true;
+      tempoInicioPiscar = agora;
+      expressaoAtual = FACE_PISCANDO;
+      desenharRostoRobo();
+    } else if (emPiscar && (agora - tempoInicioPiscar > 160)) {
+      emPiscar = false;
+      ultimoPiscar = agora;
+      expressaoAtual = FACE_NEUTRO;
+      desenharRostoRobo();
+    }
+
+    // Micro-sacadas de olhar (observando o ambiente a cada 6s)
+    if (!emPiscar && (agora - ultimoOlhar > 6000)) {
+      ultimoOlhar = agora;
+      static int seq = 0;
+      seq = (seq + 1) % 4;
+      if (seq == 1) olharTarget = 15;
+      else if (seq == 3) olharTarget = -15;
+      else olharTarget = 0;
+    }
+
+    if (olharOffset != olharTarget) {
+      olharOffset += (olharTarget - olharOffset) * 0.4f;
+      desenharRostoRobo();
     }
   }
 
-  // Comandos seriais do servidor
+  // 2. Leitura e Detecção do Touch
+  uint16_t tx, ty;
+  if (lcd.getTouch(&tx, &ty)) {
+    lastTouchTs = agora;
+    Serial.printf("👆 [TOUCH DETECTADO] X=%d Y=%d\n", tx, ty);
+
+    // Verifica clique em cada botão
+    for (int i = 0; i < 3; i++) {
+      // Área de toque com margem de tolerância para o dedo
+      bool dentro = (tx >= (botoes[i].x - 10) && tx <= (botoes[i].x + botoes[i].w + 10) &&
+                     ty >= (botoes[i].y - 15) && ty <= (botoes[i].y + botoes[i].h + 20));
+
+      if (dentro && !botoes[i].pressionado) {
+        botoes[i].pressionado = true;
+        expressaoAtual = FACE_FELIZ; // Fica feliz ao ser tocado!
+        desenharRostoRobo();
+
+        Serial.printf("{\"type\":\"arm_cmd\",\"action\":\"%s\"}\n", botoes[i].cmd);
+      }
+    }
+  } else {
+    // Soltou o dedo da tela
+    if (agora - lastTouchTs > 180) {
+      bool precisaRedesenhar = false;
+      for (int i = 0; i < 3; i++) {
+        if (botoes[i].pressionado) {
+          botoes[i].pressionado = false;
+          precisaRedesenhar = true;
+        }
+      }
+      if (precisaRedesenhar) {
+        expressaoAtual = FACE_NEUTRO;
+        desenharRostoRobo();
+      }
+    }
+  }
+
+  // 3. Comandos Seriais do Servidor
   if (Serial.available()) {
     String linha = Serial.readStringUntil('\n');
     linha.trim();
@@ -325,16 +400,17 @@ void loop() {
       DeserializationError err = deserializeJson(doc, linha);
       if (!err && doc["mood"].is<const char*>()) {
         const char* m = doc["mood"];
-        if (strcmp(m, "happy") == 0) currentMood = MOOD_HAPPY;
-        else if (strcmp(m, "thinking") == 0) currentMood = MOOD_THINKING;
-        else if (strcmp(m, "alert") == 0) currentMood = MOOD_ALERT;
-        else if (strcmp(m, "sleep") == 0) currentMood = MOOD_SLEEP;
-        else currentMood = MOOD_NEUTRAL;
+        if (strcmp(m, "happy") == 0) expressaoAtual = FACE_FELIZ;
+        else if (strcmp(m, "listen") == 0) expressaoAtual = FACE_OUVINDO;
+        else if (strcmp(m, "focus") == 0) expressaoAtual = FACE_FOCADO;
+        else if (strcmp(m, "sleep") == 0) expressaoAtual = FACE_SONO;
+        else expressaoAtual = FACE_NEUTRO;
 
-        Serial.printf("{\"ack\":\"mood_updated\",\"mood\":\"%s\"}\n", m);
+        desenharRostoRobo();
+        Serial.printf("{\"ack\":\"face_updated\",\"mood\":\"%s\"}\n", m);
       }
     }
   }
 
-  delay(16);
+  delay(20);
 }
