@@ -47,10 +47,12 @@ class DockManager:
             for cand in candidatas:
                 if cand and os.path.exists(cand):
                     try:
-                        self._serial = serial.Serial(cand, self.baudrate, timeout=1.0)
+                        self._serial = serial.Serial(cand, self.baudrate, timeout=0.1)
+                        self._serial.dtr = True  # CRUCIAL para ESP32-S3 USB CDC
+                        self._serial.rts = True
                         self.porta_dock = cand
                         self.conectado = True
-                        print(f"✅ [DOCK MANAGER] Conectado ao ESP32-S3 Dock em {cand}!")
+                        print(f"✅ [DOCK MANAGER] Conectado ao ESP32-S3 Dock em {cand}!", flush=True)
                         
                         # Sincroniza a persona ativa imediatamente no boot
                         self._sincronizar_persona_inicial()
