@@ -10,6 +10,11 @@ import json
 import threading
 import serial
 import serial.tools.list_ports
+from dotenv import load_dotenv
+
+# Carrega variáveis de ambiente do brain
+DIR_BRAIN = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(DIR_BRAIN, ".env"))
 
 class DockManager:
     def __init__(self):
@@ -21,14 +26,17 @@ class DockManager:
         self._rodando = True
         self._thread_leitura = None
         self._thread_telemetria = None
+        self._garra_aberta = False
 
     def iniciar(self):
         """Inicia os loops em segundo plano para comunicação com o Dock."""
-        self._thread_leitura = threading.Thread(target=self._loop_leitura, name="DockReader", daemon=True)
-        self._thread_leitura.start()
+        if self._thread_leitura is None or not self._thread_leitura.is_alive():
+            self._thread_leitura = threading.Thread(target=self._loop_leitura, name="DockReader", daemon=True)
+            self._thread_leitura.start()
         
-        self._thread_telemetria = threading.Thread(target=self._loop_telemetria, name="DockTelemetry", daemon=True)
-        self._thread_telemetria.start()
+        if self._thread_telemetria is None or not self._thread_telemetria.is_alive():
+            self._thread_telemetria = threading.Thread(target=self._loop_telemetria, name="DockTelemetry", daemon=True)
+            self._thread_telemetria.start()
 
     def _conectar(self) -> bool:
         with self._lock:
@@ -96,19 +104,29 @@ class DockManager:
             
             if tipo == "arm_cmd":
                 acao = d.get("action", "").lower()
-                print(f"🤖 [DOCK -> BRAÇO] Comando disparado pelo Touch: {acao.upper()}")
+                print(f"\n🤖 [DOCK TOUCH] Comando recebido da tela: {acao.upper()}")
                 
-                # Encaminha o comando para o controlador serial do braço robótico
+                # Encaminha o comando com envio garantido para o Arduino Uno do braço
                 try:
                     from serial_comm import serial_comm
                     if acao == "wave":
+                        print("  -> Executando ACENAR no Arduino...")
+                        serial_comm.enviar_comando("CMD:WAVE")
                         serial_comm.mover_braco("acenar")
                     elif acao == "point":
+                        print("  -> Executando APONTAR no Arduino...")
+                        serial_comm.enviar_comando("CMD:POINT")
                         serial_comm.mover_braco("apontar")
-                    elif acao == "rest":
-                        serial_comm.mover_braco("descanso")
+                    elif acao in ("rest", "repouso", "descanso"):
+                        print("  -> Executando REPOUSO no Arduino...")
+                        serial_comm.enviar_comando("CMD:REST")
+                        serial_comm.mover_braco("repouso")
                     elif "garra" in acao:
-                        serial_comm.mover_braco("garra")
+                        self._garra_aberta = not self._garra_aberta
+                        cmd_g = "CMD:GARRA:OPEN" if self._garra_aberta else "CMD:GARRA:CLOSE"
+                        print(f"  -> Alternando Garra: {cmd_g}...")
+                        serial_comm.enviar_comando(cmd_g)
+                        self.enviar_notificacao(f"GARRA: {'ABERTA' if self._garra_aberta else 'FECHADA'}")
                 except Exception as e:
                     print(f"⚠️ [DOCK] Erro ao repassar comando para o braço: {e}")
 
@@ -125,8 +143,6 @@ class DockManager:
                 if linha:
                     if linha.startswith("{") and linha.endswith("}"):
                         self._processar_evento_dock(linha)
-                    elif "TOUCH" in linha:
-                        pass
             except Exception:
                 self.conectado = False
                 time.sleep(2.0)
@@ -159,3 +175,13 @@ class DockManager:
                 pass
 
 dock_manager = DockManager()
+
+if __name__ == "__main__":
+    print("🚀 [TESTE DE BANCADA] Iniciando Dock Manager Bridge em modo manual...")
+    print("Toque nos botões da tela TFT 4.0\" para ver os comandos serem repassados ao Arduino!")
+    dock_manager.iniciar()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nEncerrando teste.")
