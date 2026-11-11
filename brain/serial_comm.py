@@ -109,10 +109,22 @@ class SerialCommController:
                                 porta_alvo = p.device
                                 break
 
-                # 2. Linux: portas USB (/dev/ttyUSB1, /dev/ttyUSB2...). Ignora /dev/ttyACM* (usado pelo Dock ESP32-S3)
+                # 2. Linux: portas USB e links persistentes (/dev/serial/by-id/*, /dev/ttyUSB*, /dev/ttyACM*)
                 import glob
+                candidatas_by_id = []
+                for l in glob.glob("/dev/serial/by-id/*"):
+                    base = os.path.basename(l).lower()
+                    real = os.path.realpath(l)
+                    # Não pega o ESP32-S3 do Dock nem a porta da impressora
+                    if "espressif" in base or "esp32" in base or "jtag" in base:
+                        continue
+                    if real in bloqueadas:
+                        continue
+                    if "arduino" in base or "uno" in base or "ch340" in base or "ftdi" in base or "1a86" in base:
+                        candidatas_by_id.append(real)
+
                 candidatas_usb = [p for p in sorted(glob.glob("/dev/ttyUSB*")) if os.path.realpath(p) not in bloqueadas]
-                candidatas = candidatas_usb
+                candidatas = candidatas_by_id + candidatas_usb
 
                 portas_para_tentar = []
                 if porta_alvo and os.path.realpath(porta_alvo) not in bloqueadas:
@@ -137,26 +149,28 @@ class SerialCommController:
                         print(f"🔌 [SERIAL] Conectando ao Arduino na porta {cand} ({self.baudrate} baud)...")
                         s = serial.Serial(cand, self.baudrate, timeout=1.0)
                         # O Arduino UNO reinicia via DTR ao abrir a serial. Aguarda inicialização limpa (até 3.0s).
-                        t_limite = time.time() + 3.0
+                        t_limite = time.time() + 2.5
                         conectou = False
                         while time.time() < t_limite:
                             if s.in_waiting > 0:
                                 linha = s.readline().decode("utf-8", errors="ignore").strip()
-                                if "READY" in linha or "ONLINE" in linha or "JARVIS" in linha:
+                                if "READY" in linha or "ONLINE" in linha or "JARVIS" in linha or "ACK" in linha:
                                     conectou = True
                                     break
                             time.sleep(0.05)
                         if not conectou:
-                            s.write(b"CMD:PING\n")
+                            s.write(b"CMD:READY\n")
                             s.flush()
-                            time.sleep(0.2)
+                            time.sleep(0.3)
                             resp = s.read(s.in_waiting or 64).decode("utf-8", errors="ignore")
-                            if "JARVIS" in resp or "PONG" in resp:
+                            # Qualquer resposta reconhecida ou até comando desconhecido prova a presença do firmware Arduino
+                            if any(k in resp for k in ["JARVIS", "READY", "PONG", "ACK", "ERR:UNKNOWN_CMD"]):
                                 conectou = True
 
                         if conectou:
                             self._serial = s
                             porta_conectada = cand
+                            print(f"✅ [SERIAL] Arduino Uno autenticado e conectado com sucesso em {cand}!")
                             break
                         else:
                             s.close()

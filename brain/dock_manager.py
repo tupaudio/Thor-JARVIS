@@ -30,6 +30,13 @@ class DockManager:
 
     def iniciar(self):
         """Inicia os loops em segundo plano para comunicação com o Dock."""
+        import subprocess
+        # Garante que nenhum processo de teste órfão esteja segurando as portas
+        try:
+            subprocess.run("pkill -9 -f ponte_direta.py 2>/dev/null || true", shell=True)
+        except Exception:
+            pass
+
         if self._thread_leitura is None or not self._thread_leitura.is_alive():
             self._thread_leitura = threading.Thread(target=self._loop_leitura, name="DockReader", daemon=True)
             self._thread_leitura.start()
@@ -122,6 +129,34 @@ class DockManager:
         """Altera a expressão facial do robô (happy, listen, focus, sleep, neutral)."""
         self.enviar_json({"mood": expressao})
 
+    def _enviar_braco_direto(self, acao: str):
+        """Fallback direto garantido caso serial_comm não esteja conectado."""
+        try:
+            import glob
+            porta_arm = None
+            for l in glob.glob("/dev/serial/by-id/*"):
+                base = os.path.basename(l).lower()
+                real = os.path.realpath(l)
+                if "espressif" in base or "esp32" in base or real == self.porta_dock:
+                    continue
+                if any(k in base for k in ["arduino", "uno", "ch340", "ftdi", "1a86"]):
+                    porta_arm = real
+                    break
+            if not porta_arm:
+                for cand in ["/dev/ttyUSB1", "/dev/ttyUSB2", "/dev/ttyUSB0"]:
+                    if os.path.exists(cand) and cand != self.porta_dock:
+                        porta_arm = cand
+                        break
+            if porta_arm:
+                s = serial.Serial(porta_arm, 115200, timeout=0.5, write_timeout=0.5)
+                cmd = f"CMD:{acao.upper()}\n".encode("utf-8")
+                s.write(cmd)
+                s.flush()
+                s.close()
+                print(f"🚀 [DOCK FALLBACK] Enviado {cmd.strip().decode()} com sucesso para {porta_arm}!")
+        except Exception as e:
+            print(f"⚠️ [DOCK FALLBACK] Erro ao enviar comando direto: {e}")
+
     def _processar_evento_dock(self, linha: str):
         """Processa eventos enviados pelo ESP32 (toque nos botões, status, etc.)."""
         try:
@@ -133,28 +168,32 @@ class DockManager:
                 print(f"\n🤖 [DOCK TOUCH] Comando recebido da tela: {acao.upper()}")
                 
                 # Encaminha o comando com envio garantido para o Arduino Uno do braço
+                enviado = False
                 try:
                     from serial_comm import serial_comm
                     if acao == "wave":
                         print("  -> Executando ACENAR no Arduino...")
-                        serial_comm.enviar_comando("CMD:WAVE")
+                        enviado = serial_comm.enviar_comando("CMD:WAVE")
                         serial_comm.mover_braco("acenar")
                     elif acao == "point":
                         print("  -> Executando APONTAR no Arduino...")
-                        serial_comm.enviar_comando("CMD:POINT")
+                        enviado = serial_comm.enviar_comando("CMD:POINT")
                         serial_comm.mover_braco("apontar")
                     elif acao in ("rest", "repouso", "descanso"):
                         print("  -> Executando REPOUSO no Arduino...")
-                        serial_comm.enviar_comando("CMD:REST")
+                        enviado = serial_comm.enviar_comando("CMD:REST")
                         serial_comm.mover_braco("repouso")
                     elif "garra" in acao:
                         self._garra_aberta = not self._garra_aberta
                         cmd_g = "CMD:GARRA:OPEN" if self._garra_aberta else "CMD:GARRA:CLOSE"
                         print(f"  -> Alternando Garra: {cmd_g}...")
-                        serial_comm.enviar_comando(cmd_g)
+                        enviado = serial_comm.enviar_comando(cmd_g)
                         self.enviar_notificacao(f"GARRA: {'ABERTA' if self._garra_aberta else 'FECHADA'}")
                 except Exception as e:
-                    print(f"⚠️ [DOCK] Erro ao repassar comando para o braço: {e}")
+                    print(f"⚠️ [DOCK] Erro via serial_comm: {e}")
+
+                if not enviado and acao in ("wave", "point", "rest", "repouso"):
+                    self._enviar_braco_direto(acao)
 
         except json.JSONDecodeError:
             pass
